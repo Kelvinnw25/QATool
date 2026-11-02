@@ -1,0 +1,35 @@
+# Dependencies (root and the web workspace)
+node_modules/
+
+# Build output
+web/dist/
+
+# Environment and credentials. Only the example file is tracked.
+.env
+.env.*
+!.env.example
+
+# Captured output from scripts/qa-eval - evaluation artifacts, not source.
+.qa-eval-output/
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+*.tmp
+*.temp
+.cache/
+.vite/
+coverage/
+
+# Claude Code: per-machine permissions. CLAUDE.md and the rest of .claude/ stay tracked.
+.claude/settings.local.json
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+Desktop.ini

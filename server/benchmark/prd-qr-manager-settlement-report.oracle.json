@@ -1,0 +1,1219 @@
+{
+  "oracle_version": "1.2.0",
+  "frozen": true,
+  "source_document": {
+    "title": "PRD QR Manager Settlement Report",
+    "pages": 12,
+    "audited_from": "pdftotext -layout, read independently of QATOOL's own extractor",
+    "audit_date": "2026-10-02",
+    "note": "Every source_text below is quoted from the PDF. Where the PDF wraps a sentence across lines the quote joins it with single spaces and says so; nothing is paraphrased. Page 6 carries the report format as a raster image rather than text: it was extracted from the PDF image XObjects with pdfjs, upscaled and read directly, and is transcribed here with unreadable portions marked rather than guessed."
+  },
+  "classification_rules": {
+    "ACTIONABLE_BEHAVIOR": "A behaviour a tester can set up, perform and confirm from the PRD's own words.",
+    "QUALIFIER": "A narrowing the PRD attaches to a behaviour. Losing it leaves a test that passes for the wrong reason, so it is counted separately from the behaviour it narrows.",
+    "GUARD_CONDITION": "A statement of when an action is permitted or forbidden. Distinct from the action: a suite proving the action happens has not tested when it must not.",
+    "OUTPUT_CONTRACT": "A stated property of an artefact the system produces - a file name, a format, a delimiter, a destination, a value-to-meaning mapping.",
+    "NOT_MEASURABLE": "Stated, but the PRD gives nothing objective to assert. Never to be satisfied by an invented threshold.",
+    "IMPLEMENTATION_INSTRUCTION": "Addressed to whoever builds or deploys the system rather than to the system. Its observable consequence, where there is one, is stated elsewhere.",
+    "EXAMPLE_SAMPLE": "An illustration. Shows the shape of a value; does not make that value required.",
+    "BACKGROUND_OBJECTIVE": "Context, rationale, or a description of today's behaviour. Not a requirement on the new system.",
+    "DOCUMENT_METADATA": "Approvals, issue keys, environment addresses, plan. Not system behaviour."
+  },
+  "actionable_obligations": [
+    {
+      "id": "GO-001",
+      "requirement": "1. Set Default View, Implement Pagination and Add New Column on Transaction Data",
+      "scenario": "Default Table in Settlement Report Menu",
+      "source_page": 3,
+      "source_text": "Automatically load and show transactions with the status Unsettled or Unreleased",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "default_view",
+      "required_conditions": ["User opens the Settlement Report menu"],
+      "required_qualifiers": [],
+      "required_values": ["Unsettled", "Unreleased"],
+      "independently_testable": true,
+      "expected_evidence": [["unsettled"], ["unreleased"]]
+    },
+    {
+      "id": "GO-002",
+      "requirement": "1. Set Default View, Implement Pagination and Add New Column on Transaction Data",
+      "scenario": "Default Table in Settlement Report Menu",
+      "source_page": 3,
+      "source_text": "Ensure to load all available data from all dates",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "default_view",
+      "required_conditions": ["User opens the Settlement Report menu"],
+      "required_qualifiers": ["all dates"],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [["all dates", "all available data", "semua tanggal"]]
+    },
+    {
+      "id": "GO-003",
+      "requirement": "1. Set Default View, Implement Pagination and Add New Column on Transaction Data",
+      "scenario": "Row Display and Pagination Limit",
+      "source_page": 3,
+      "source_text": "Display a maximum of 10 rows of transaction per page",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "bound",
+      "required_conditions": ["the data is fully rendered on screen"],
+      "required_qualifiers": [],
+      "required_values": ["10"],
+      "independently_testable": true,
+      "expected_evidence": [["10"], ["row", "baris"]]
+    },
+    {
+      "id": "GO-004",
+      "requirement": "1. Set Default View, Implement Pagination and Add New Column on Transaction Data",
+      "scenario": "Row Display and Pagination Limit",
+      "source_page": 3,
+      "source_text": "Display the navigation control buttons as Prev 10 and Next 10",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "ui_contract",
+      "required_conditions": ["the data is fully rendered on screen"],
+      "required_qualifiers": [],
+      "required_values": ["Prev 10", "Next 10"],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["prev 10", "prev10"],
+        ["next 10", "next10"]
+      ],
+      "notes": "The parenthetical '(current condition: Prev 100 and Next 100)' is today's behaviour, recorded separately as GO-059. It is not an acceptance criterion."
+    },
+    {
+      "id": "GO-005",
+      "requirement": "1. Set Default View, Implement Pagination and Add New Column on Transaction Data",
+      "scenario": "Add Release Date and Time Column",
+      "source_page": 4,
+      "source_text": "Add and display new data column for RELEASE DATE AND TIME to the table",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "ui_contract",
+      "required_conditions": ["a transaction status has successfully achieved Settled or Released"],
+      "required_qualifiers": [],
+      "required_values": ["RELEASE DATE AND TIME"],
+      "independently_testable": true,
+      "expected_evidence": [["release date and time", "release date & time"]],
+      "notes": "The PDF wraps this between 'RELEASE' and 'DATE AND TIME to the table'; quoted here joined."
+    },
+    {
+      "id": "GO-006",
+      "requirement": "1. Set Default View, Implement Pagination and Add New Column on Transaction Data",
+      "scenario": "Add Release Date and Time Column",
+      "source_page": 4,
+      "source_text": "Include these timestamps inside the report file",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "side_effect",
+      "required_conditions": ["a transaction status has successfully achieved Settled or Released"],
+      "required_qualifiers": [],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["report file", "file report", "report"],
+        ["timestamp", "release date"]
+      ]
+    },
+    {
+      "id": "GO-007",
+      "requirement": "2. Make the Export Button Always Active",
+      "scenario": "Activate the Export Button",
+      "source_page": 4,
+      "source_text": "Maintain the Export to TXT button status as active and enabled under all data states",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "ui_contract",
+      "required_conditions": [],
+      "required_qualifiers": ["under all data states"],
+      "required_values": ["Export to TXT"],
+      "independently_testable": true,
+      "expected_evidence": [["export"], ["active", "enabled", "aktif"]]
+    },
+    {
+      "id": "GO-008",
+      "requirement": "2. Make the Export Button Always Active",
+      "scenario": "Activate the Export Button",
+      "source_page": 4,
+      "source_text": "Trigger the file generation or download process immediately upon clicking without any validation lockouts",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "ui_action",
+      "required_conditions": ["moves the cursor over or clicks Export button"],
+      "required_qualifiers": ["without any validation lockouts"],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [["download", "file generation", "unduh"]]
+    },
+    {
+      "id": "GO-009",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "WHEN the system clock reaches 03.00 AM / off-peak hours",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "schedule",
+      "required_conditions": [
+        "all transactions for the D-1 (previous day from 00.00-23.59) have concluded"
+      ],
+      "required_qualifiers": [],
+      "required_values": ["03.00 AM"],
+      "independently_testable": true,
+      "expected_evidence": [["03.00", "03:00", "3.00 am", "3 am"]]
+    },
+    {
+      "id": "GO-010",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "Extract all transaction data from 00.00 to 23.59 on D-1 (previous day) including both H+1 and On Hold transactions",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "data_scope",
+      "required_conditions": [],
+      "required_qualifiers": ["including both H+1 and On Hold transactions"],
+      "required_values": ["00.00", "23.59", "D-1"],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["00.00", "00:00"],
+        ["23.59", "23:59"],
+        ["d-1", "previous day", "h-1"]
+      ]
+    },
+    {
+      "id": "GO-011",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "Ensure the process runs automatically without normal intervention and without creating temporary files (.tmp) during extraction",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "process_constraint",
+      "required_conditions": [],
+      "required_qualifiers": [
+        "without normal intervention",
+        "without creating temporary files (.tmp)"
+      ],
+      "required_values": [".tmp"],
+      "independently_testable": true,
+      "expected_evidence": [
+        [".tmp", "temporary file"],
+        ["intervention", "manual", "automatic"]
+      ]
+    },
+    {
+      "id": "GO-012",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Timeout Catching & Delay Buffer",
+      "source_page": 7,
+      "source_text": "Mark the transaction as PENDING and route the record into a dedicated CHECK STATUS queue.",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "transition",
+      "required_conditions": ["experience Timeout (TTTP 408 or 504 or responseCode 68 - Timeout)"],
+      "required_qualifiers": [],
+      "required_values": ["PENDING", "CHECK STATUS"],
+      "independently_testable": true,
+      "expected_evidence": [["pending"], ["check status"], ["queue", "antrian"]]
+    },
+    {
+      "id": "GO-013",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Timeout Catching & Delay Buffer",
+      "source_page": 7,
+      "source_text": "Trigger a scheduler to manage this queue, preventing any resource blocking on the main transaction flow.",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "side_effect",
+      "required_conditions": [],
+      "required_qualifiers": ["preventing any resource blocking on the main transaction flow"],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [["scheduler"], ["main transaction flow", "main flow", "blocking"]]
+    },
+    {
+      "id": "GO-014",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Timeout Catching & Delay Buffer",
+      "source_page": 7,
+      "source_text": "Enforce a strict 1 hour delay from the original timeout timestamp before allowing the scheduler to process the record",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "schedule",
+      "required_conditions": [],
+      "required_qualifiers": ["from the original timeout timestamp"],
+      "required_values": ["1 hour"],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["1 hour", "1 jam", "one hour", "60 minute"],
+        ["original timeout", "original timestamp", "timeout timestamp", "waktu timeout awal"]
+      ],
+      "notes": "The duration alone is not the obligation: the PRD fixes where the hour is measured FROM. 'Wait an hour, then process' and 'wait an hour from the original timeout timestamp, then process' are different tests, and only the second is what page 7 states. Evidence tightened in v1.1.1; required_qualifiers had said this since v1.0.0 while nothing enforced it."
+    },
+    {
+      "id": "GO-015",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "Call Check Status to T24 via MW (mscore*) to verify the actual state of the transaction",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "integration_call",
+      "required_conditions": [
+        "the interval time has passed and the isolated scheduler picks up the PENDING transaction"
+      ],
+      "required_qualifiers": ["mscore*"],
+      "required_values": ["T24", "MW"],
+      "independently_testable": true,
+      "expected_evidence": [["check status"], ["t24"], ["mw", "middleware"]]
+    },
+    {
+      "id": "GO-016",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "IF check status response from T24 is Success (Y.ISO.RESPONSE:1:1=\"00\" and Y.MSG.RES:1:1=\"{{ada isi FT Number nya}}\" ), update the DB status to SUCCESS and save the FT NUMBER",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "branch",
+      "required_conditions": ["Y.ISO.RESPONSE:1:1=\"00\""],
+      "required_qualifiers": [],
+      "required_values": ["00", "SUCCESS", "FT NUMBER"],
+      "independently_testable": true,
+      "expected_evidence": [["00"], ["success"], ["ft number", "ft no"]],
+      "notes": "'{{ada isi FT Number nya}}' is a placeholder meaning the field carries an FT number; it is not a literal value."
+    },
+    {
+      "id": "GO-017",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "IF FAILED (Y.ISO.RESPONSE:1:1=\"01\") or NOT FOUND, then trigger retry Release Settlement to MW.",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "branch",
+      "required_conditions": ["Y.ISO.RESPONSE:1:1=\"01\" or NOT FOUND"],
+      "required_qualifiers": [],
+      "required_values": ["01", "NOT FOUND"],
+      "independently_testable": true,
+      "expected_evidence": [["01"], ["retry", "ulang"], ["release settlement"]]
+    },
+    {
+      "id": "GO-018",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "The maximum number of settlement release retries is 3.",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "bound",
+      "required_conditions": [],
+      "required_qualifiers": [],
+      "required_values": ["3"],
+      "independently_testable": true,
+      "expected_evidence": [["3"], ["retry", "retries", "ulang"]]
+    },
+    {
+      "id": "GO-019",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "IF after Release Settlement 1 and/or 2 retries attempt the transaction still Timeout, perform Check Status again.",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "branch",
+      "required_conditions": [
+        "after Release Settlement 1 and/or 2 retries attempt the transaction still Timeout"
+      ],
+      "required_qualifiers": [],
+      "required_values": ["1", "2"],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["timeout"],
+        ["check status"],
+        ["1st", "2nd", "1 and", "first", "second"],
+        ["again", "re-check", "recheck"]
+      ],
+      "notes": "The behaviour is a RE-check: page 8 says 'perform Check Status again'. Until v1.2.0 the evidence asked only for 'check status', which the first call (GO-015, 'Call Check Status to T24 via MW', same page) and the timeout queue (GO-012) also name - so a case about the first release timing out and being queued for CHECK STATUS showed every group. 'again' is the source's own word for what separates this item from those two."
+    },
+    {
+      "id": "GO-020",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "IF the status remains unresolved (FAILED) after 3rd retry attempt, permanently mark the transaction status as FAILED",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "branch",
+      "required_conditions": ["the status remains unresolved (FAILED) after 3rd retry attempt"],
+      "required_qualifiers": ["permanently"],
+      "required_values": ["3", "FAILED"],
+      "independently_testable": true,
+      "expected_evidence": [["3rd", "third", "3"], ["permanent"], ["failed"]]
+    },
+    {
+      "id": "GO-021",
+      "requirement": "6. Add Filter in Advanced Search",
+      "scenario": "Add New Filter Options",
+      "source_page": 10,
+      "source_text": "Add a new dropdown field named Settlement Status: placed directly below the existing Settlement Type: dropdown: Settled , Unsettled , and Settled & Unsettled",
+      "semantic_type": "ui_contract",
+      "required_conditions": ["User click Advance Search filter dropdown"],
+      "independently_testable": true,
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "assertion": "a dropdown field named Settlement Status exists",
+      "required_qualifiers": [],
+      "required_values": ["Settlement Status"],
+      "expected_evidence": [["settlement status"], ["dropdown", "field"]],
+      "notes": "One source bullet stating three things that can independently pass or fail: the field exists (GO-021), it sits directly below Settlement Type (GO-074), and it offers exactly three options (GO-075). All three keep the original wording in source_text, so traceability to page 10 is unbroken. The PDF wraps this across four lines; quoted here joined."
+    },
+    {
+      "id": "GO-022",
+      "requirement": "6. Add Filter in Advanced Search",
+      "scenario": "Add New Filter Options",
+      "source_page": 10,
+      "source_text": "IF the User pick Settled filter, then display all of the settled transaction",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "branch",
+      "required_conditions": ["the User pick Settled filter"],
+      "required_qualifiers": ["within the chosen time period"],
+      "required_values": ["Settled"],
+      "independently_testable": true,
+      "expected_evidence": [["settled"], ["filter"]]
+    },
+    {
+      "id": "GO-023",
+      "requirement": "6. Add Filter in Advanced Search",
+      "scenario": "Add New Filter Options",
+      "source_page": 10,
+      "source_text": "IF the User pick Unsettled filter, then display all of the unsettled transaction",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "branch",
+      "required_conditions": ["the User pick Unsettled filter"],
+      "required_qualifiers": ["within the chosen time period"],
+      "required_values": ["Unsettled"],
+      "independently_testable": true,
+      "expected_evidence": [["unsettled"], ["filter"]]
+    },
+    {
+      "id": "GO-024",
+      "requirement": "6. Add Filter in Advanced Search",
+      "scenario": "Add New Filter Options",
+      "source_page": 10,
+      "source_text": "IF the User pick Settled & Unsettled , then display all of the settled and unsettled transaction",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "branch",
+      "required_conditions": ["the User pick Settled & Unsettled"],
+      "required_qualifiers": ["within the chosen time period"],
+      "required_values": ["Settled & Unsettled"],
+      "independently_testable": true,
+      "expected_evidence": [["settled & unsettled", "settled and unsettled"]]
+    },
+    {
+      "id": "GO-025",
+      "requirement": "7. Tick All QR Transaction Release Settlement",
+      "scenario": "Tick All QR Transaction Release Settlement",
+      "source_page": 11,
+      "source_text": "Display a Select All checkbox on the page near the transaction list table",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "ui_contract",
+      "required_conditions": ["the user clicks the Release action button"],
+      "required_qualifiers": ["near the transaction list table"],
+      "required_values": ["Select All"],
+      "independently_testable": true,
+      "expected_evidence": [["select all"], ["checkbox"]]
+    },
+    {
+      "id": "GO-026",
+      "requirement": "7. Tick All QR Transaction Release Settlement",
+      "scenario": "Tick All QR Transaction Release Settlement",
+      "source_page": 11,
+      "source_text": "Select all transaction rows in the table when the user checks the Select All box",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "ui_action",
+      "required_conditions": ["the user checks the Select All box"],
+      "required_qualifiers": [],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [["select all"], ["check", "tick", "centang"]]
+    },
+    {
+      "id": "GO-027",
+      "requirement": "7. Tick All QR Transaction Release Settlement",
+      "scenario": "Tick All QR Transaction Release Settlement",
+      "source_page": 11,
+      "source_text": "Unselect all transaction rows in the table when the user unchecks the Select All box",
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "semantic_type": "ui_action",
+      "required_conditions": ["the user unchecks the Select All box"],
+      "required_qualifiers": [],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [["unselect", "uncheck", "deselect", "batal"]],
+      "notes": "An action and its reversal are two scenarios. GO-026 cannot discharge this one."
+    },
+    {
+      "id": "GO-028",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "(Date using Transaction Date)",
+      "classification": "QUALIFIER",
+      "semantic_type": "qualifier",
+      "qualifies": "GO-036",
+      "required_conditions": [],
+      "required_qualifiers": ["Transaction Date"],
+      "required_values": ["Transaction Date"],
+      "independently_testable": true,
+      "expected_evidence": [["transaction date", "tanggal transaksi"]],
+      "notes": "Decides which date the DDMMYYYY in the file name is built from. A case verifying the file name format without it passes for the wrong reason."
+    },
+    {
+      "id": "GO-029",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "(mscore*)",
+      "classification": "QUALIFIER",
+      "semantic_type": "qualifier",
+      "qualifies": "GO-015",
+      "required_conditions": [],
+      "required_qualifiers": ["mscore*"],
+      "required_values": ["mscore"],
+      "independently_testable": true,
+      "expected_evidence": [["mscore"]],
+      "notes": "Names the component the Check Status call travels through. 'calls T24 via MW' and 'calls T24 via MW (mscore*)' are different tests."
+    },
+    {
+      "id": "GO-030",
+      "requirement": "7. Tick All QR Transaction Release Settlement",
+      "scenario": "Tick All QR Transaction Release Settlement",
+      "source_page": 11,
+      "source_text": "(Settlement Type: HOLD)",
+      "classification": "QUALIFIER",
+      "semantic_type": "qualifier",
+      "qualifies": "GO-025",
+      "required_conditions": [],
+      "required_qualifiers": ["Settlement Type: HOLD"],
+      "required_values": ["HOLD"],
+      "independently_testable": true,
+      "expected_evidence": [["hold"]],
+      "notes": "The Release action button is reached in the HOLD settlement type. A Select All case without it is not executable as written."
+    },
+    {
+      "id": "GO-031",
+      "requirement": "6. Add Filter in Advanced Search",
+      "scenario": "Add New Filter Options",
+      "source_page": 10,
+      "source_text": "Process and render the data according to the selected filter within the chosen time period:",
+      "classification": "QUALIFIER",
+      "semantic_type": "qualifier",
+      "qualifies": "GO-022,GO-023,GO-024",
+      "required_conditions": [],
+      "required_qualifiers": ["within the chosen time period"],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [["time period", "date range", "periode", "rentang"]],
+      "notes": "The three filter branches are each scoped to the chosen time period. None of the IF lines repeats it."
+    },
+    {
+      "id": "GO-032",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "including both H+1 and On Hold transactions",
+      "classification": "QUALIFIER",
+      "semantic_type": "qualifier",
+      "qualifies": "GO-010",
+      "required_conditions": [],
+      "required_qualifiers": ["H+1", "On Hold"],
+      "required_values": ["H+1", "On Hold"],
+      "independently_testable": true,
+      "expected_evidence": [["h+1"], ["on hold", "hold"]],
+      "notes": "Names which transaction classes the extract must include. An extract proving the time window says nothing about these."
+    },
+    {
+      "id": "GO-033",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Status Verification and Conditional Retry",
+      "source_page": 8,
+      "source_text": "Notes: Retry for Settlement Release is only performed when the status check response is FAILED (transaction not completed) and the retry attempt has not reached 3 times",
+      "classification": "GUARD_CONDITION",
+      "semantic_type": "guard",
+      "guards": "GO-017",
+      "required_conditions": [
+        "the status check response is FAILED (transaction not completed)",
+        "the retry attempt has not reached 3 times"
+      ],
+      "required_qualifiers": [],
+      "required_values": ["FAILED", "3"],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["failed"],
+        [
+          "has not reached",
+          "not yet reached",
+          "not reached",
+          "less than",
+          "belum mencapai",
+          "fewer than"
+        ],
+        ["3"]
+      ],
+      "alternative_evidence": [
+        [
+          [
+            "not performed",
+            "not be performed",
+            "not trigger",
+            "not retried",
+            "no retry",
+            "no settlement release retry"
+          ],
+          ["not failed", "other than failed"],
+          ["reached 3", "reaches 3"]
+        ]
+      ],
+      "notes": "Two conditions, both required. This states when the retry is FORBIDDEN, which a case proving the retry happens cannot prove. The PDF wraps it after 'the status check response is'. Since v1.2.0 the forbidden side is accepted in its own words as well: 'only performed when FAILED and the attempt has not reached 3' is the same rule as 'not performed when the response is not FAILED or the attempt has reached 3'. That form must still negate BOTH conditions in one case - the retry withheld, a non-FAILED response, and the limit reached. A case withholding the retry at the limit alone states half the guard and is still missing; so is one withholding it for a non-FAILED response alone."
+    },
+    {
+      "id": "GO-034",
+      "requirement": "7. Tick All QR Transaction Release Settlement",
+      "scenario": "Tick All QR Transaction Release Settlement",
+      "source_page": 11,
+      "source_text": "Notes: Select All only applies to transactions on the current active page (up to 10 rows per page) and will not select items on other pages",
+      "classification": "GUARD_CONDITION",
+      "semantic_type": "guard",
+      "guards": "GO-026",
+      "required_conditions": [
+        "only applies to transactions on the current active page",
+        "will not select items on other pages"
+      ],
+      "required_qualifiers": ["up to 10 rows per page"],
+      "required_values": ["10"],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["current active page", "active page", "current page"],
+        ["other page", "halaman lain"]
+      ],
+      "notes": "Three assertions: the page scope, the page size, and that other pages are untouched. The last is what a Select All implementation gets wrong."
+    },
+    {
+      "id": "GO-035",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Timeout Catching & Delay Buffer",
+      "source_page": 7,
+      "source_text": "WHEN QR Manager proceed Release Settlement to T24 (Core Banking) via MW and experience Timeout (TTTP 408 or 504 or responseCode 68 - Timeout)",
+      "classification": "GUARD_CONDITION",
+      "semantic_type": "trigger",
+      "guards": "GO-012",
+      "required_conditions": ["experience Timeout"],
+      "required_qualifiers": [],
+      "required_values": ["408", "504", "68"],
+      "independently_testable": true,
+      "expected_evidence": [["408", "504", "68"], ["timeout"]],
+      "notes": "Three stated timeout signals. The PENDING/queue behaviour applies to these and the PRD names no others."
+    },
+    {
+      "id": "GO-036",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "Use SETTLEMENT_QRMANAGER_DDMMYYYY.txt as file name format (Date using Transaction Date)",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "file_name",
+      "required_conditions": [],
+      "required_qualifiers": ["Date using Transaction Date"],
+      "required_values": ["SETTLEMENT_QRMANAGER_DDMMYYYY.txt"],
+      "independently_testable": true,
+      "expected_evidence": [["settlement_qrmanager", "settlement_qrmanager_ddmmyyyy"]]
+    },
+    {
+      "id": "GO-037",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "Generate the final report file in .txt format using a tilde ~ as the data delimiter",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "file_format",
+      "required_conditions": [],
+      "required_qualifiers": [],
+      "required_values": [".txt", "~"],
+      "independently_testable": true,
+      "expected_evidence": [
+        [".txt", "txt"],
+        ["tilde", "~"]
+      ]
+    },
+    {
+      "id": "GO-038",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "Save the final .txt file into a designated directory path on QR Manager server so its ready to be fetched by Reconciliation team.",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "destination",
+      "required_conditions": [],
+      "required_qualifiers": ["on QR Manager server"],
+      "required_values": [],
+      "independently_testable": true,
+      "expected_evidence": [
+        ["directory", "path", "direktori"],
+        ["qr manager server", "qr manager"]
+      ],
+      "notes": "The literal path /usr/local/tomcat/recon appears on page 7 under 'Also refer to this note', as environment configuration rather than as an acceptance criterion; recorded as GO-068. The server is part of the contract and is therefore required evidence: in v1.0.0 it sat only in required_qualifiers, which let this item read as covered while the qualifier metric reported it absent - two metrics disagreeing about one sentence."
+    },
+    {
+      "id": "GO-039",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Core Banking Response Values / Transaction Meaning",
+      "source_page": 9,
+      "source_text": "Y.ISO.RESPONSE:1:1=\"00\" AND Y.MSG.RES:1:1=\"FT250430FK4S\" -> Funds Transfer (FT) Success (Transaction successfully processed in core)",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "response_mapping",
+      "required_conditions": ["Y.ISO.RESPONSE:1:1=\"00\"", "Y.MSG.RES:1:1 carries an FT number"],
+      "required_qualifiers": [],
+      "required_values": ["00", "Funds Transfer (FT) Success"],
+      "independently_testable": true,
+      "expected_evidence": [["00"], ["ft"], ["success"]],
+      "notes": "A two-column table on page 9. 'FT250430FK4S' is a SAMPLE FT number - the rule is that the field carries an FT number, recorded as GO-048. The meaning, 'Funds Transfer (FT) Success', is the testable part: a run proving the field was read has not proved 00 was understood as success."
+    },
+    {
+      "id": "GO-040",
+      "requirement": "5. Redefine Timeout Transaction Logic via Check Status",
+      "scenario": "Core Banking Response Values / Transaction Meaning",
+      "source_page": 9,
+      "source_text": "Y.ISO.RESPONSE:1:1=\"01\" AND Y.MSG.RES:1:1=\"Transaction Failed!\" -> Transaction Not Found / Failed (FT is not recorded)",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "response_mapping",
+      "required_conditions": ["Y.ISO.RESPONSE:1:1=\"01\"", "Y.MSG.RES:1:1=\"Transaction Failed!\""],
+      "required_qualifiers": [],
+      "required_values": ["01", "Transaction Failed!", "Transaction Not Found / Failed"],
+      "independently_testable": true,
+      "expected_evidence": [["01"], ["transaction failed", "not found"]],
+      "notes": "Unlike the success row, 'Transaction Failed!' is a LITERAL message string, not a sample: it is the same for every failure. 'FT is not recorded' is the stated consequence."
+    },
+    {
+      "id": "GO-074",
+      "requirement": "6. Add Filter in Advanced Search",
+      "scenario": "Add New Filter Options",
+      "source_page": 10,
+      "source_text": "Add a new dropdown field named Settlement Status: placed directly below the existing Settlement Type: dropdown: Settled , Unsettled , and Settled & Unsettled",
+      "semantic_type": "ui_contract",
+      "required_conditions": ["User click Advance Search filter dropdown"],
+      "independently_testable": true,
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "assertion": "the field is placed directly below the existing Settlement Type dropdown",
+      "required_qualifiers": ["placed directly below the existing Settlement Type"],
+      "required_values": ["Settlement Type"],
+      "expected_evidence": [["below"], ["settlement type"]],
+      "split_from": "GO-021",
+      "notes": "Placement fails independently of existence: a field in the wrong position is a defect the PRD names explicitly."
+    },
+    {
+      "id": "GO-075",
+      "requirement": "6. Add Filter in Advanced Search",
+      "scenario": "Add New Filter Options",
+      "source_page": 10,
+      "source_text": "Add a new dropdown field named Settlement Status: placed directly below the existing Settlement Type: dropdown: Settled , Unsettled , and Settled & Unsettled",
+      "semantic_type": "ui_contract",
+      "required_conditions": ["User click Advance Search filter dropdown"],
+      "independently_testable": true,
+      "classification": "ACTIONABLE_BEHAVIOR",
+      "assertion": "the dropdown offers exactly Settled, Unsettled, and Settled & Unsettled",
+      "required_qualifiers": [],
+      "required_values": ["Settled", "Unsettled", "Settled & Unsettled"],
+      "expected_evidence": [
+        ["settled"],
+        ["unsettled"],
+        ["settled & unsettled", "settled and unsettled"]
+      ],
+      "split_from": "GO-021",
+      "notes": "The option set fails independently of both existence and placement. \"Exactly\" matters: a fourth option is also a defect."
+    },
+    {
+      "id": "GO-042",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_medium": "image",
+      "source_extraction": "Page 6, raster image (450x267 and 450x152 XObjects), introduced by the text line \"Report format to be generated as shown below:\". Extracted with pdfjs, upscaled 4x and read directly.",
+      "required_conditions": [],
+      "independently_testable": true,
+      "source_text": "Report format to be generated as shown below: [table] Column Name Report | Source Table Name | Source Column Name | Format | Sample Data - 17 rows, TRX_DATE through SETTLEMENT_GROUP_ID",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "file_schema",
+      "assertion": "the generated file carries exactly these 17 columns, each read from the stated source table and column",
+      "required_qualifiers": [],
+      "required_values": [
+        "TRX_DATE",
+        "SETTLEMENT_DATE",
+        "RETRIEVAL_REF_NUM",
+        "MERCHANT_ID",
+        "PAN",
+        "MERCHANT_NAME",
+        "MERCHANT_CRITERIA",
+        "MERCHANT_SETTLEMENT_TYPE",
+        "TO_ACCOUNT",
+        "AMOUNT",
+        "CHARGE_AMOUNT",
+        "AMOUNT_SETTLEMENT",
+        "FT_NUMBER_SETTLEMENT",
+        "SWITCHING_NAME",
+        "ID_GROUP",
+        "SETTLEMENT_STATUS",
+        "SETTLEMENT_GROUP_ID"
+      ],
+      "report_columns": [
+        {
+          "column_name_report": "TRX_DATE",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "TRX_DATE",
+          "format": "DD-MMM-YY",
+          "sample_data": "03-Feb-25"
+        },
+        {
+          "column_name_report": "SETTLEMENT_DATE",
+          "source_table_name": "qr_settlement_group",
+          "source_column_name": "SETTLEMENT_TIME",
+          "format": "DD-MMM-YY",
+          "sample_data": "04-Feb-25"
+        },
+        {
+          "column_name_report": "RETRIEVAL_REF_NUM",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "RETRIEVAL_REF_NUM",
+          "format": null,
+          "sample_data": "250723641792"
+        },
+        {
+          "column_name_report": "MERCHANT_ID",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "MERCHANT_ID",
+          "format": null,
+          "sample_data": "2000000000946"
+        },
+        {
+          "column_name_report": "PAN",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "PAN",
+          "format": null,
+          "sample_data": "9360015302018539983"
+        },
+        {
+          "column_name_report": "MERCHANT_NAME",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "MERCHANT_NAME",
+          "format": null,
+          "sample_data": "Toko Daisho Merchant QR0123456"
+        },
+        {
+          "column_name_report": "MERCHANT_CRITERIA",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "MERCHANT_CRITERIA",
+          "format": null,
+          "sample_data": "UMI"
+        },
+        {
+          "column_name_report": "MERCHANT_SETTLEMENT_TYPE",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "MERCHANT_SETTLEMENT_TYPE",
+          "format": null,
+          "sample_data": "H+1"
+        },
+        {
+          "column_name_report": "TO_ACCOUNT",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "TO_ACCOUNT",
+          "format": null,
+          "sample_data": "58992577"
+        },
+        {
+          "column_name_report": "AMOUNT",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "AMOUNT",
+          "format": "Decimal 2 digits",
+          "sample_data": "100000"
+        },
+        {
+          "column_name_report": "CHARGE_AMOUNT",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "CHARGE_AMOUNT",
+          "format": "Decimal 2 digits",
+          "sample_data": "0"
+        },
+        {
+          "column_name_report": "AMOUNT_SETTLEMENT",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "AMOUNT_SETTLEMENT",
+          "format": "Decimal 2 digits",
+          "sample_data": "100000"
+        },
+        {
+          "column_name_report": "FT_NUMBER_SETTLEMENT",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "FT_NUMBER_SETTLEMENT",
+          "format": null,
+          "sample_data": "FT04FDFKNR90"
+        },
+        {
+          "column_name_report": "SWITCHING_NAME",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "SWITCHING_NAME",
+          "format": null,
+          "sample_data": "ALTO"
+        },
+        {
+          "column_name_report": "ID_GROUP",
+          "source_table_name": "v_qr_release_settlement",
+          "source_column_name": "ID_GROUP",
+          "format": null,
+          "sample_data": null
+        },
+        {
+          "column_name_report": "SETTLEMENT_STATUS",
+          "source_table_name": "qr_settlement_group",
+          "source_column_name": "SETTLEMENT_STATUS",
+          "format": null,
+          "sample_data": "SUCCESS"
+        },
+        {
+          "column_name_report": "SETTLEMENT_GROUP_ID",
+          "source_table_name": "qr_settlement_group",
+          "source_column_name": "SETTLEMENT_GROUP_ID",
+          "format": null,
+          "sample_data": "0024000000000122024122…1140627610"
+        }
+      ],
+      "expected_evidence": [
+        ["trx_date"],
+        ["retrieval_ref_num"],
+        ["merchant_id"],
+        ["amount_settlement"],
+        ["settlement_group_id"]
+      ],
+      "notes": "CORRECTED IN v1.1.0. v1.0.0 recorded this as NOT_MEASURABLE on the grounds that the field list was unrecoverable. That was wrong: the PDF text layer is empty here because the table is a raster image, not because the content is missing. Reading the image gives the whole contract. The lesson is recorded rather than quietly fixed - \"extraction returned nothing\" and \"the document says nothing\" are different claims, and this oracle made the first into the second.",
+      "unresolved": "Only the SETTLEMENT_GROUP_ID sample value is partially illegible, wrapping across two lines as '0024000000000122024122' then '1140627610'. It is sample data, not contract, so nothing required is unresolved. ID_GROUP's sample cell is genuinely empty in the source.",
+      "expected_evidence_note": "Five representative column names rather than all seventeen: a test case naming five of the schema demonstrably tested the layout, while demanding all seventeen in one case would measure the generator’s verbosity rather than its coverage. required_values carries the full list for auditing."
+    },
+    {
+      "id": "GO-070",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_medium": "image",
+      "source_extraction": "Page 6, raster image (450x267 and 450x152 XObjects), introduced by the text line \"Report format to be generated as shown below:\". Extracted with pdfjs, upscaled 4x and read directly.",
+      "required_conditions": [],
+      "independently_testable": true,
+      "source_text": "Format column: DD-MMM-YY, on TRX_DATE and SETTLEMENT_DATE",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "field_format",
+      "assertion": "the two date columns are written as DD-MMM-YY",
+      "required_qualifiers": [],
+      "required_values": ["DD-MMM-YY", "TRX_DATE", "SETTLEMENT_DATE"],
+      "expected_evidence": [["dd-mmm-yy", "dd mmm yy", "03-feb-25", "04-feb-25"]],
+      "notes": "Stated in the Format column for exactly these two rows and left blank for every other."
+    },
+    {
+      "id": "GO-071",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_medium": "image",
+      "source_extraction": "Page 6, raster image (450x267 and 450x152 XObjects), introduced by the text line \"Report format to be generated as shown below:\". Extracted with pdfjs, upscaled 4x and read directly.",
+      "required_conditions": [],
+      "independently_testable": true,
+      "source_text": "Format column: Decimal 2 digits, on AMOUNT, CHARGE_AMOUNT and AMOUNT_SETTLEMENT",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "field_format",
+      "assertion": "the three amount columns are written with two decimal digits",
+      "required_qualifiers": [],
+      "required_values": ["Decimal 2 digits", "AMOUNT", "CHARGE_AMOUNT", "AMOUNT_SETTLEMENT"],
+      "expected_evidence": [["decimal"], ["2 digit", "two digit", "2 decimal", "two decimal"]],
+      "notes": "Fails independently of the column list: a file can carry all 17 columns with unformatted amounts."
+    },
+    {
+      "id": "GO-072",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_medium": "image",
+      "source_extraction": "Page 6, raster image (450x267 and 450x152 XObjects), introduced by the text line \"Report format to be generated as shown below:\". Extracted with pdfjs, upscaled 4x and read directly.",
+      "required_conditions": [],
+      "independently_testable": true,
+      "source_text": "Note : Key join : FT_NUMBER on table qr_settlement_group dan FT_NUMBER_SETTLEMENT on table v_qr_release_settlement",
+      "classification": "OUTPUT_CONTRACT",
+      "semantic_type": "join_key",
+      "assertion": "the two source tables are joined on FT_NUMBER to FT_NUMBER_SETTLEMENT",
+      "required_qualifiers": [],
+      "required_values": [
+        "FT_NUMBER",
+        "FT_NUMBER_SETTLEMENT",
+        "qr_settlement_group",
+        "v_qr_release_settlement"
+      ],
+      "expected_evidence": [
+        ["ft_number"],
+        ["join", "qr_settlement_group", "v_qr_release_settlement"]
+      ],
+      "notes": "The schema draws from two tables and this is the only statement of how they are related. A wrong join produces a file of the right shape carrying the wrong rows, which no column-level check would catch."
+    },
+    {
+      "id": "GO-073",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "scenario": "Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_medium": "image",
+      "source_extraction": "Page 6, raster image (450x267 and 450x152 XObjects), introduced by the text line \"Report format to be generated as shown below:\". Extracted with pdfjs, upscaled 4x and read directly.",
+      "required_conditions": [
+        "Data only contains with FT_NUMBER",
+        "otherwise the data is not streamed"
+      ],
+      "independently_testable": true,
+      "source_text": "Note : [Validation] Data only contains with FT_NUMBER, otherwise the data is not streamed.",
+      "classification": "GUARD_CONDITION",
+      "semantic_type": "guard",
+      "guards": "GO-042",
+      "assertion": "rows without an FT_NUMBER are excluded from the file",
+      "required_qualifiers": [],
+      "required_values": ["FT_NUMBER"],
+      "expected_evidence": [
+        ["ft_number", "ft number"],
+        ["not streamed", "excluded", "not included", "only"]
+      ],
+      "notes": "The source labels it [Validation] and states both halves: what is included and what happens otherwise. This is a rule about what must NOT appear in the file, so a case proving correct rows are present cannot discharge it."
+    }
+  ],
+  "not_measurable": [
+    {
+      "id": "GO-041",
+      "requirement": "3. Table Tuning to Fix Report Slowness",
+      "scenario": "Table Tuning",
+      "source_page": 5,
+      "source_text": "Load and display the transaction data grid quickly",
+      "classification": "NOT_MEASURABLE",
+      "reason": "no_threshold_stated",
+      "justification": "The PRD states a quality and never quantifies it. The only number nearby is '(cost 28 seconds)', which describes today's production behaviour, not a target. No test case may assert a timing threshold here, and inventing one would be a fabricated rule in a SIT script."
+    }
+  ],
+  "implementation_instructions": [
+    {
+      "id": "GO-043",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "source_page": 6,
+      "source_text": "Create and implement new automated scheduler to trigger the daily report generation",
+      "classification": "IMPLEMENTATION_INSTRUCTION",
+      "justification": "Decided from the structure of this scenario, not from general practice. Under one THEN the PRD lists six bullets; the other five use runtime verbs - Extract, Ensure, Use, Generate, Save - and describe what the software does when it runs. This one uses build verbs, 'Create and implement', and names a component to be constructed. Everything a tester could confirm about it is already stated by the scenario itself: the trigger is the WHEN ('the system clock reaches 03.00 AM', GO-009) and the absence of manual steps is GO-011. There is nothing left for a case to prove that those two do not already prove.",
+      "observable_residue": ["GO-009", "GO-011"]
+    },
+    {
+      "id": "GO-044",
+      "requirement": "3. Table Tuning to Fix Report Slowness",
+      "source_page": 5,
+      "source_text": "Perform Table Tuning to optimize data retrieval process",
+      "classification": "IMPLEMENTATION_INSTRUCTION",
+      "justification": "DECIDED from the source, not from practice. The PRD names an activity - 'Perform Table Tuning' - and defines nothing a tester could observe about it: no index, no query, no plan, no target. The only consequence it states is the next bullet, 'Load and display the transaction data grid quickly', which is itself unquantified (GO-041), and the only number on the page is '(cost 28 seconds)', explicitly labelled a current production condition rather than a target. It is IMPLEMENTATION_INSTRUCTION rather than NOT_MEASURABLE because the verb is addressed to whoever builds the system: every sibling bullet in this document's THEN lists describes the running system reacting to a user or a clock, while this one is a maintenance task performed once, off-line, by a DBA.",
+      "observable_residue": ["GO-041"],
+      "qa_can_observe": "Nothing specific. A tester can observe only the grid loading, which is GO-041 and carries no stated threshold. No performance threshold may be invented from the 28 seconds.",
+      "counter_argument": "It is written under 'THEN the system must fulfill:' alongside genuine criteria, and a reviewer could hold it verifiable by database inspection outside SIT. That reading does not change the SIT answer, which is what this oracle measures."
+    },
+    {
+      "id": "GO-045",
+      "requirement": "4. Auto-Generate Daily Settlement Report",
+      "source_page": 7,
+      "source_text": "This path IP need to mount to IP Broadridge (by SysAdmin), so transfer data process can works properly",
+      "classification": "IMPLEMENTATION_INSTRUCTION",
+      "justification": "Explicitly assigned to SysAdmin and performed outside the application. Infrastructure provisioning, not QR Manager behaviour."
+    }
+  ],
+  "examples": [
+    {
+      "id": "GO-046",
+      "source_page": 8,
+      "source_text": "Below is the Request OFS Message via mscore : { \"!OPERATION\" : \"ENQUIRY.SELECT\", \"!TRANSACTION_ID\" : \"E.CHN.VERIFY.FT\", \"UMG.UNIQUE.ID:EQ\" : \"{{UMG UNIQUE ID on Release Settlement Requst}}\" }",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "DECIDED on placement, not on how technical the values look. Three things in the source settle it. First, the lead-in: 'Below is the Request OFS Message via mscore :' is the same construction as 'Below is the Response from T24 via mscore :', and that one is unambiguously a specimen - it carries a sample FT number and contradicts itself on RESPONSE.TRX. Second, position: the block sits AFTER the scenario's acceptance criteria and after the Notes, outside the 'THEN the system must fulfill:' list that every requirement in this PRD uses to state obligations. Third, state of completion: the same block holds an unfilled placeholder, '{{UMG UNIQUE ID on Release Settlement Requst}}' (sic), and an unresolved authoring note, '*Tambah Queue name' - a block still being drafted is not a frozen interface contract. ENQUIRY.SELECT and E.CHN.VERIFY.FT are constants rather than specimens, but the PRD nowhere states that the system must send them, and this oracle records what the document requires rather than what the integration probably needs.",
+      "if_wrong": "If the team confirms these are frozen interface constants, that is a clarification the PRD should carry: the fix is a source change followed by an oracle revision, not a reinterpretation of the current wording."
+    },
+    {
+      "id": "GO-047",
+      "source_page": 8,
+      "source_text": "Below is the Response from T24 via mscore : { \"responseCode\": \"00\", \"responseMessage\": \"Success!\", \"data\": { \"RESPONSE.TRX::\": \"01\", \"Y.MSG.RES:1:1\": \"FT26188KDBJZ\", ... } }",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "A specimen payload. It is internally inconsistent with itself - 'RESPONSE.TRX::' is \"01\" while the rawResponse carries Y.ISO.RESPONSE:1:1=\"00\" - which is further reason to read it as an illustration of shape rather than a rule. 'FT26188KDBJZ' is a sample FT number."
+    },
+    {
+      "id": "GO-048",
+      "source_page": 9,
+      "source_text": "Y.MSG.RES:1:1=\"FT250430FK4S\"",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "A specimen FT number inside the mapping table's success row. The rule is that the field carries an FT number (GO-039), never that it equals this one. Asserting this literal would be testing the picture."
+    },
+    {
+      "id": "GO-049",
+      "source_page": 4,
+      "source_text": "Current Export Button:",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "Lead-in to a screenshot of today's UI. No text follows it in the PDF text layer."
+    },
+    {
+      "id": "GO-050",
+      "source_page": 4,
+      "source_text": "Reference:",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "Lead-in to a screenshot beneath the Release Date and Time criteria."
+    },
+    {
+      "id": "GO-051",
+      "source_page": 11,
+      "source_text": "Example:",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "Lead-in to a screenshot of the Select All behaviour."
+    },
+    {
+      "id": "GO-052",
+      "source_page": 5,
+      "source_text": "Current condition in production when opening Settlement Report menu (cost 28 seconds):",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "Lead-in to a screenshot of today's timing. See GO-060 for the 28 seconds itself."
+    },
+    {
+      "id": "GO-076",
+      "source_page": 6,
+      "source_medium": "image",
+      "source_extraction": "Page 6, raster image (450x267 and 450x152 XObjects), introduced by the text line \"Report format to be generated as shown below:\". Extracted with pdfjs, upscaled 4x and read directly.",
+      "source_text": "Sample Data column of the report format table: 03-Feb-25, 04-Feb-25, 250723641792, 2000000000946, 9360015302018539983, Toko Daisho Merchant QR0123456, UMI, H+1, 58992577, 100000, 0, FT04FDFKNR90, ALTO, SUCCESS, 0024000000000122024122…1140627610",
+      "classification": "EXAMPLE_SAMPLE",
+      "justification": "A column headed \"Sample Data\". It shows the shape each field takes and makes none of these values required. The merchant name, the PAN, the FT number and the account number are specimens; asserting any of them would be testing the picture. Note that H+1 and UMI also appear as real stated values elsewhere in the PRD - they are examples HERE, in this column, which is why the column is recorded as one item rather than its values being scattered."
+    }
+  ],
+  "background": [
+    {
+      "id": "GO-053",
+      "source_page": 2,
+      "source_text": "The QR Manager application serves as the core platform for managing and executing QRIS settlement activities. Currently, the Settlement Report module faces operational bottlenecks due to heavy data loading, manual extraction workflows, and rigid UI constraints...",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Background paragraph describing today's problems."
+    },
+    {
+      "id": "GO-054",
+      "source_page": 2,
+      "source_text": "Additionally, infrastructure timeouts during settlement releases to the Core Banking system (T24) via Middleware pose significant operational risks...",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Background paragraph. Names the systems, states no behaviour."
+    },
+    {
+      "id": "GO-055",
+      "source_page": 2,
+      "source_text": "Improve report rendering through database tuning, updated page limits, and a new release timestamp column",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Objective bullet. Restates at a high level what GO-003, GO-004 and GO-005 state testably."
+    },
+    {
+      "id": "GO-056",
+      "source_page": 2,
+      "source_text": "Expand filtering options within the advanced search criteria and ensure the export button is always functional",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Objective bullet. Restates GO-007, GO-008 and GO-021 to GO-024."
+    },
+    {
+      "id": "GO-057",
+      "source_page": 2,
+      "source_text": "Automate the daily generation and transfer of settlement report files for reconciliation purposes",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Objective bullet. Restates requirement 4."
+    },
+    {
+      "id": "GO-058",
+      "source_page": 2,
+      "source_text": "Implement an isolated queue and automated check-status retry loop to handle timed-out transactions without blocking the main workflow",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Objective bullet. Restates requirement 5."
+    },
+    {
+      "id": "GO-059",
+      "source_page": 3,
+      "source_text": "(current condition: Prev 100 and Next 100)",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Explicitly labelled 'current condition'. Describes what the system does today; the requirement is Prev 10 / Next 10 (GO-004). A test asserting 100 would be testing the defect."
+    },
+    {
+      "id": "GO-060",
+      "source_page": 5,
+      "source_text": "(cost 28 seconds)",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Today's measured page-open time, given as context under 'Current condition in production'. NOT a target and NOT an acceptance threshold. The PRD never says the tuned page must beat 28 seconds, or any number."
+    },
+    {
+      "id": "GO-061",
+      "source_page": 7,
+      "source_text": "(giving the Core Banking system a cool-down period)",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Rationale for the 1 hour delay (GO-014), not a separate behaviour."
+    },
+    {
+      "id": "GO-062",
+      "source_page": 6,
+      "source_text": "Scope connectivity QR Manager only QR Manager <-> SFTP <-> Broadridge",
+      "classification": "BACKGROUND_OBJECTIVE",
+      "justification": "Scope statement under 'Also refer to this note'. Bounds the work; states no behaviour of QR Manager."
+    }
+  ],
+  "document_metadata": [
+    {
+      "id": "GO-063",
+      "source_page": 1,
+      "source_text": "Document Approval / Created by / Reviewed by / Approved by, with the Name-Title-Project Role-Signature tables",
+      "classification": "DOCUMENT_METADATA",
+      "justification": "Approval apparatus. The two-column name tables are the commonest false source of 'mapping' obligations."
+    },
+    {
+      "id": "GO-064",
+      "source_page": 1,
+      "source_text": "Epic Link / Project No 106/NHC/ITD/IT/2.03/VIII/23 / Document Status / Product Name QR Manager Settlement Report",
+      "classification": "DOCUMENT_METADATA",
+      "justification": "Document header fields. The project number has the shape of a limit and is not one."
+    },
+    {
+      "id": "GO-065",
+      "source_page": 1,
+      "source_text": "SDE4-22294, SDE4-17394, SDE4-17449, SDE4-17451, SDE4-17479, SDE4-17521, SDE4-19347, NPWOW31-650, with their status words (Done, IN PROGRESS, Ready to SIT, Ready for Deployment)",
+      "classification": "DOCUMENT_METADATA",
+      "justification": "Issue tracker keys and workflow states. They appear in the Jira Link column of every scenario table and have the shape of response codes. Neither the keys nor the status words are system behaviour."
+    },
+    {
+      "id": "GO-066",
+      "source_page": 3,
+      "source_text": "Relevant Documents / Jira NPWOW Link / NPWOW31-650: Penambahan Switching Artajasa / ATMB untuk layanan QRIS Bank Sinarmas",
+      "classification": "DOCUMENT_METADATA",
+      "justification": "A pointer to another document."
+    },
+    {
+      "id": "GO-067",
+      "source_page": 12,
+      "source_text": "Rollout Plan: SIT, Performance Test / Load Test (*If needed), UAT, SAT, LIVE",
+      "classification": "DOCUMENT_METADATA",
+      "justification": "Project plan. Names the test phases; states nothing for a test case to assert."
+    },
+    {
+      "id": "GO-068",
+      "source_page": 7,
+      "source_text": "IP QR Manager Production are 10.22.11.94:8080 and Path : /usr/local/tomcat/recon",
+      "classification": "DOCUMENT_METADATA",
+      "justification": "Environment configuration given under 'Also refer to this note'. The directory requirement itself is GO-038; this is the production address that satisfies it, which is deployment data rather than an acceptance criterion."
+    },
+    {
+      "id": "GO-069",
+      "source_page": 8,
+      "source_text": "4 *Tambah Queue name",
+      "classification": "DOCUMENT_METADATA",
+      "justification": "An unresolved authoring note inside the sample request ('Add queue name'). An open item, not a requirement."
+    }
+  ],
+  "revision_history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-01",
+      "note": "First audit. 69 items, 40 actionable. The page 6 report format was recorded as unavailable because the PDF text layer is empty there."
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-10-02",
+      "note": "Resolved five pending questions against the source. The largest correction: the report format on page 6 IS readable - it is an image, not missing content - so GO-042 moves from NOT_MEASURABLE to OUTPUT_CONTRACT and the schema it defines becomes new actionable items. GO-021 split into three. GO-038 evidence tightened so coverage and the qualifier metric cannot disagree about one sentence. GO-044 and GO-046 decided; review flags cleared."
+    },
+    {
+      "version": "1.1.1",
+      "date": "2026-10-02",
+      "note": "Evidence only; no classification changed and the actionable set is still 47. GO-014 now requires the reference point it already listed in required_qualifiers - \"from the original timeout timestamp\" - so a case asserting any hour-long wait no longer closes it. The same correction GO-038 received in v1.1.0, applied to the one item that still had a qualifier doing no work."
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-10-06",
+      "note": "Evidence, plus one optional field; no classification changed and the actionable set is still 47. GO-033 gains alternative_evidence: its own sentence on page 8, 'only performed when the status check response is FAILED ... and the retry attempt has not reached 3 times', is equivalently 'not performed when the response is not FAILED or the attempt has reached 3' - the forbidden side, which this item's note always said a guard is about and which v1.1.1 could not credit. Both negated conditions are required in one case. 'not reached' joins the attempt-count spellings. GO-019 now requires 'again', the page 8 word that separates the re-check from the first Check Status call (GO-015) and the timeout queue (GO-012). The comparator reads alternative_evidence and gained two narrow normalisations, neither of which is a similarity rule: 'times out' / 'timed out' / 'time out' / 'time-out' as 'timeout', and a number term no longer matches inside a longer number."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# Keep LF in the working tree on every OS; .prettierrc sets endOfLine: lf and
+# `npm run format:check` fails on CRLF checkouts otherwise.
+* text=auto eol=lf
+
+# Binary inputs/outputs: never normalise.
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.png binary
+*.ico binary

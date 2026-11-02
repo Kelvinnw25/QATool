@@ -1,0 +1,40 @@
+{
+  "name": "qatool",
+  "version": "1.0.0-m1",
+  "private": true,
+  "type": "module",
+  "description": "Internal QA productivity tool: project documents -> requirements -> SIT test cases -> SIT Script.xlsx",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:server": "node --env-file-if-exists=.env server/index.js",
+    "dev:server:watch": "node --env-file-if-exists=.env --watch server/index.js",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build --workspace web",
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "test": "node --import ./server/testing/no-network.js --test --test-concurrency=1 \"server/**/*.test.js\" \"web/src/**/*.test.js\"",
+    "test:llm": "node --env-file-if-exists=.env --test server/llm/gemini.live.test.js",
+    "test:apayee": "node --import ./server/testing/no-network.js --test server/llm/apayee.smoke.test.js",
+    "llm:smoke": "node --env-file-if-exists=.env scripts/llm-smoke.js",
+    "e2e:live": "node scripts/e2e-live.js",
+    "qa:eval": "node scripts/qa-eval/run.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@fastify/multipart": "^10.1.1",
+    "@fastify/static": "^8.2.0",
+    "fastify": "^5.6.1",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^6.3.289",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  }
+}

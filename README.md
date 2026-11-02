@@ -158,6 +158,9 @@ Then edit `.env`:
 
 Extraction and export work without any key. Check the install with `npm test` (offline, free).
 
+The exact Node.js, npm and dependency versions this was set up and checked with, the known test
+caveat, and a recovery procedure are in [`docs/ENVIRONMENT_SNAPSHOT.md`](docs/ENVIRONMENT_SNAPSHOT.md).
+
 ## Environment variables
 
 Names and purpose only; defaults are in `server/config.js` and `.env.example`. Values are never committed.

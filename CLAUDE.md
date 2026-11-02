@@ -88,6 +88,11 @@ NODE_ENV=production npm start   # serves web/dist
 `npm run llm:smoke`, `e2e:live`, `qa:eval`, `test:llm`, `test:apayee` make real provider calls: run them
 only when asked.
 
+Before changing the Node.js or npm version, `package-lock.json` or any dependency version, read
+`docs/ENVIRONMENT_SNAPSHOT.md` (and its `.json` twin): it records the versions last checked, the
+lockfile hash, and a known `npm test` caveat (11 cancelled tests in `server/llm/llm.test.js`, exit
+code 1 with 0 failures).
+
 ## Conventions
 
 - ESM everywhere; Prettier config in `.prettierrc` (single quotes, width 100). No ESLint.

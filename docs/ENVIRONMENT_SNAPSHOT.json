@@ -1,0 +1,244 @@
+{
+  "schema": 1,
+  "note": "Machine-readable twin of ENVIRONMENT_SNAPSHOT.md. package-lock.json is the source of truth for the full dependency tree. No secret values are recorded.",
+  "captured_at": "2026-11-03T02:30:22+07:00",
+  "os": {
+    "name": "Windows 11 Pro",
+    "version": "10.0.26300",
+    "build": "26300.9711",
+    "display_version": "26H2",
+    "architecture": "x64",
+    "cpu": "AMD Ryzen 5 7500F (6 cores / 12 threads)",
+    "memory_gb": 15.6
+  },
+  "toolchain": {
+    "node": { "version": "22.15.0", "v8": "12.4.254.21", "arch": "x64", "platform": "win32" },
+    "npm": { "version": "11.6.4", "registry": "https://registry.npmjs.org/" },
+    "git": { "version": "2.48.1.windows.1" },
+    "docker_desktop": {
+      "installed": true,
+      "client": "29.9.2",
+      "engine": "29.9.2",
+      "engine_platform": "linux/amd64",
+      "context": "desktop-linux",
+      "used_by_qatool": false
+    },
+    "docker_compose": { "version": "v5.6.1" },
+    "wsl": {
+      "version": "2.6.3.0",
+      "kernel": "6.6.87.2-1",
+      "wslg": "1.0.71",
+      "default_wsl_version": 2,
+      "default_distribution": "docker-desktop",
+      "optional_features_checked": false
+    },
+    "other_node_binaries_on_disk": [
+      {
+        "version": "22.15.0",
+        "location": "C:\\laragon\\bin\\nodejs\\node-v22.15.0-win-x64",
+        "on_path": false
+      },
+      {
+        "version": "23.11.0",
+        "location": "%USERPROFILE%\\.config\\herd\\bin\\nvm\\v23.11.0",
+        "on_path": false
+      }
+    ],
+    "version_pin_files": { ".nvmrc": false, ".node-version": false, ".npmrc": false },
+    "engine_strict": false
+  },
+  "project": {
+    "name": "qatool",
+    "version": "1.0.0-m1",
+    "module_type": "esm",
+    "engines": { "node": ">=22.13.0" },
+    "workspaces": ["web"],
+    "lockfile_version": 3,
+    "lockfile_package_entries": 221,
+    "web_lockfile_present": false
+  },
+  "dependencies": {
+    "backend": {
+      "fastify": { "declared": "^5.6.1", "locked": "5.12.5" },
+      "@fastify/multipart": { "declared": "^10.1.1", "locked": "10.1.1" },
+      "@fastify/static": { "declared": "^8.2.0", "locked": "8.3.0" },
+      "fflate": { "declared": "^0.8.3", "locked": "0.8.3" },
+      "pdfjs-dist": { "declared": "^6.3.289", "locked": "6.3.289" },
+      "zod": { "declared": "^4.1.12", "locked": "4.6.5" },
+      "prettier": { "declared": "^3.6.2", "locked": "3.9.8", "dev": true }
+    },
+    "frontend": {
+      "react": { "declared": "^19.2.0", "locked": "19.3.0" },
+      "react-dom": { "declared": "^19.2.0", "locked": "19.3.0" },
+      "vite": { "declared": "^7.1.9", "locked": "7.3.6", "dev": true },
+      "@vitejs/plugin-react": { "declared": "^5.0.4", "locked": "5.2.0", "dev": true }
+    },
+    "node_engine_requirements": {
+      "project": ">=22.13.0",
+      "pdfjs-dist@6.3.289": ">=22.13.0 || >=24",
+      "vite@7.3.6": "^20.19.0 || >=22.12.0",
+      "@vitejs/plugin-react@5.2.0": "^20.19.0 || >=22.12.0",
+      "@napi-rs/lzma-linux-x64-gnu@1.5.1": "^22.20 || ^24.12 || >=25 (optional, dev, linux-only; not installed on Windows)"
+    },
+    "npm_audit": { "low": 1, "moderate": 3, "high": 4, "reviewed": false }
+  },
+  "hashes_sha256": {
+    "package-lock.json": "acf4d62f5ddd7f367e823159351b3d4769d77edab4163149ba71468a34886763",
+    "package.json": "6bf59237604fbb790401b4b3a250dbb6d523efb4f1127e94e9b8a88776d3671a",
+    "web/package.json": "da4edd75a8b7df256c2d1fb3ca35908a4e7917ddbf3dd9cd566991d85b6d1007"
+  },
+  "git": {
+    "branch": "main",
+    "commit": "49f19f80e62d061f4e4b192d9867f8019ee510a2",
+    "subject": "chore: initial project setup",
+    "working_tree_clean_at_capture": true,
+    "note": "Clean before the snapshot files and the README/CLAUDE.md links were added."
+  },
+  "env_status": {
+    "file": ".env",
+    "git_ignored": true,
+    "example_file_present": false,
+    "values_recorded": false,
+    "set": [
+      "PORT",
+      "HOST",
+      "NODE_ENV",
+      "LOG_LEVEL",
+      "SIT_TEMPLATE_PATH",
+      "MAX_BODY_BYTES",
+      "LLM_PROVIDER",
+      "GEMINI_MODEL",
+      "GEMINI_BASE_URL",
+      "LLM_TIMEOUT_MS",
+      "LLM_MAX_OUTPUT_TOKENS",
+      "APAYEE_BASE_URL",
+      "APAYEE_TOKEN",
+      "APAYEE_QUEUE_WAIT_MS"
+    ],
+    "empty": ["GEMINI_API_KEY"],
+    "unset_on_purpose": ["LLM_TEMPERATURE"]
+  },
+  "ports": {
+    "api": { "address": "127.0.0.1", "port": 3001, "listening_at_capture": true },
+    "ui": {
+      "address": "::1 (use http://localhost:5173)",
+      "port": 5173,
+      "listening_at_capture": true
+    },
+    "apayee": { "address": "127.0.0.1", "port": 4100, "listening_at_capture": true }
+  },
+  "apayee": {
+    "base_url": "http://127.0.0.1:4100",
+    "qatool_token_variable": "APAYEE_TOKEN",
+    "apayee_token_variable": "APAYEE_AUTH_TOKEN",
+    "tokens_must_match": true,
+    "token_value_recorded": false,
+    "health_endpoint": "/v1/health",
+    "generate_endpoint": "/v1/generate",
+    "claude_requires": "health reports provider exactly 'claude'; APAYEE_PROVIDER=claude, APAYEE_CLAUDE_EXPERIMENTAL=true, token of at least 32 characters, loopback host",
+    "start_order": ["Apayee: npm start", "QATOOL: npm run dev"],
+    "observed_at_capture": {
+      "claude_available": true,
+      "gemini_available": false,
+      "gemini_reason": "not_configured",
+      "checked_via": "GET /api/llm/providers (health probe only, no LLM call)",
+      "apayee_commit": "4cf4035"
+    }
+  },
+  "verification": {
+    "llm_calls_made": false,
+    "historical_setup_session": {
+      "node": "22.15.0",
+      "npm": "11.6.4",
+      "git": "2.48.1",
+      "npm_ci": "passed",
+      "format_check": "passed",
+      "build": "passed",
+      "test": {
+        "tests": 1444,
+        "pass": 1422,
+        "fail": 0,
+        "cancelled": 11,
+        "skipped": 1,
+        "todo": 10,
+        "exit_code": 1
+      }
+    },
+    "node_22_15_0": {
+      "format_check": "passed",
+      "build": "passed",
+      "test": {
+        "tests": 1444,
+        "pass": 1422,
+        "fail": 0,
+        "cancelled": 11,
+        "skipped": 1,
+        "todo": 10,
+        "exit_code": 1
+      },
+      "llm_test_js_alone": { "tests": 34, "pass": 23, "fail": 0, "cancelled": 11 }
+    },
+    "node_23_11_0": {
+      "format_check": "not run",
+      "build": "not run",
+      "test": {
+        "tests": 1444,
+        "pass": 1422,
+        "fail": 0,
+        "cancelled": 11,
+        "skipped": 1,
+        "todo": 10,
+        "exit_code": 1
+      },
+      "llm_test_js_alone": { "tests": 34, "pass": 23, "fail": 0, "cancelled": 11 },
+      "method": "existing binary invoked directly with npm test's flags; nothing installed, PATH unchanged"
+    },
+    "api_health": "ok (GET /api/health returned status ok, stateless true)",
+    "fully_verified_versions": []
+  },
+  "compatibility": {
+    "currently_observed": { "node": "22.15.0", "npm": "11.6.4", "git": "2.48.1.windows.1" },
+    "previously_verified_partial": {
+      "node": "22.15.0",
+      "npm": "11.6.4",
+      "git": "2.48.1",
+      "scope": "format:check and build passed; npm test exits 1"
+    },
+    "minimum_required": { "node": ">=22.13.0", "npm": "not declared" },
+    "suspected_issues": [
+      {
+        "versions": ["node 22.15.0", "node 23.11.0"],
+        "symptom": "11 cancelled tests in server/llm/llm.test.js; npm test exits 1 with 0 failures",
+        "mechanism": "AbortSignal.timeout timer is unref'd; a probe script showed the process exits with the promise unsettled on both versions",
+        "mechanism_confirmed_as_complete_explanation": false,
+        "production_code_affected": false
+      }
+    ],
+    "not_tested": [
+      "node 24.x (README says developed on 24.18)",
+      "node 25",
+      "npm other than 11.6.4",
+      "git other than 2.48.1",
+      "non-Windows OS",
+      "production deployment"
+    ],
+    "node_24_is_confirmed_fix": false
+  },
+  "recovery": {
+    "compare": [
+      "node -v",
+      "npm -v",
+      "git --version",
+      "Get-FileHash package-lock.json -Algorithm SHA256",
+      "git status --short"
+    ],
+    "reinstall_from_lockfile": [
+      "Remove-Item -Recurse -Force node_modules, web\\node_modules",
+      "npm ci"
+    ],
+    "recorded_node": "22.15.0 (a copy exists under C:\\laragon\\bin\\nodejs\\node-v22.15.0-win-x64)",
+    "recorded_npm": "11.6.4 (npm install --global npm@11.6.4; not executed during snapshot)",
+    "verify_offline": ["npm run format:check", "npm run build", "npm test"],
+    "expected_on_recorded_versions": "1422 passed, 11 cancelled, 0 failed, exit code 1"
+  }
+}

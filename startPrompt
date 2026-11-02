@@ -1,0 +1,112 @@
+We are setting up this cloned QATOOL project on a new Windows PC. Apayee is being prepared separately on the same PC.
+
+Your task is to understand the project, prepare its local environment, install dependencies, configure integration with the local Apayee service, and verify readiness for manual localhost testing.
+
+### 1. Knowledge Transfer
+Read and understand:
+- `CLAUDE.md`
+- `README.md`
+- `docs/IMPLEMENTATION.md` as a detailed implementation reference.
+- `.env.example`
+- `package.json` and `package-lock.json`
+- Relevant configuration, server, provider, frontend, and integration files.
+
+Understand:
+- Frontend and backend architecture.
+- Main application workflow.
+- The three LLM pipeline stages.
+- Provider selection and fallback behavior.
+- Apayee integration and its authentication contract.
+- API endpoints, ports, environment variables, and startup commands.
+- Current implementation status and important architectural decisions.
+
+Read selectively. Do not scan dependency folders, caches, or build artifacts. Do not rewrite documentation or refactor application code.
+
+### 2. Windows Environment Setup
+Inspect:
+- Node.js and npm versions.
+- Git availability.
+- Existing project configuration.
+
+Follow the documented Node.js requirement (22.13 or newer).
+
+Install dependencies using `npm ci` where a lockfile exists. Do not upgrade dependencies or modify package versions unnecessarily.
+
+### 3. Environment Configuration
+Create `.env` from `.env.example`.
+
+Inspect the actual source code to identify all required environment variables and their expected values.
+
+Configure:
+- Safe local-development defaults.
+- Local backend and frontend configuration.
+- Apayee connection settings.
+- Required provider configuration.
+- Any other variables required by the actual implementation.
+
+For local Apayee integration, use the actual configured local Apayee address (expected: `http://localhost:4100`) and the correct authentication variable names.
+
+**Shared Apayee authentication:**
+- If Apayee is located in a sibling directory named `Apayee`, read its local `.env` programmatically.
+- Copy `APAYEE_AUTH_TOKEN` into QATOOL's corresponding `APAYEE_TOKEN` variable without printing the secret.
+- Never expose the value in terminal output or the final report.
+- If the sibling directory or token is unavailable, report the exact manual action needed instead of inventing a value.
+
+For external provider credentials such as `GEMINI_API_KEY`:
+- Preserve an existing valid local value.
+- Never invent a key.
+- Leave it empty if unavailable and identify which provider requires it.
+- Ensure the application can still use its available mock or other configured local provider when applicable.
+
+Never place private API keys or tokens in frontend-exposed Vite environment variables.
+
+Verify that `.env` is Git-ignored.
+
+### 4. Local Apayee Integration
+Inspect the actual integration implementation and configure QATOOL to communicate with the local Apayee instance.
+
+Verify:
+- Correct base URL.
+- Correct authentication variable.
+- Correct port.
+- Correct request configuration.
+- No hardcoded paths from the previous computer.
+
+Do not modify the integration contract unless an actual configuration issue requires it.
+
+### 5. Local Readiness Verification
+Prepare QATOOL to run locally.
+
+Allowed:
+- Dependency installation.
+- Environment validation.
+- Build and formatting checks if available.
+- Static configuration checks.
+- Start frontend/backend services briefly.
+- Check documented health endpoints.
+- Verify that the backend can reach Apayee's health endpoint without invoking an LLM operation.
+
+Do NOT:
+- Upload or process any PRD.
+- Call `/api/extract`, `/api/generate`, or `/api/validate`.
+- Generate test cases.
+- Run semantic validation.
+- Trigger Gemini, Claude, or other real LLM requests.
+- Run tests that invoke real LLM providers.
+- Consume Claude Pro usage through unnecessary AI workflows.
+
+After verification, stop any temporary process you started. Do not leave unmanaged background processes running.
+
+### 6. Final Report
+Provide:
+1. Your understanding of QATOOL's architecture and pipeline.
+2. Node.js and npm versions.
+3. Dependencies installed.
+4. `.env` configuration status (variable names only; never values).
+5. Apayee integration and authentication readiness.
+6. Build and local health-check results.
+7. Exact commands to start frontend and backend.
+8. Local URLs and ports.
+9. Any remaining manual action or blocker.
+
+Do not implement unrelated features, change the LLM prompts, or refactor the application. Focus on preparing the existing QATOOL installation for manual localhost testing.

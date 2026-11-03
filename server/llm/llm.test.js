@@ -323,9 +323,18 @@ describe('provider failures become QATOOL errors', () => {
         init.signal.addEventListener('abort', () => reject(init.signal.reason));
       });
 
-    const error = await provider
-      .generateJson({ system: 's', prompt: 'p', schema: {} })
-      .catch((e) => e);
+    // The provider's timeout is AbortSignal.timeout(), whose timer Node unrefs, so
+    // while this test waits on it nothing keeps the event loop alive. The runner then
+    // sees "promise still pending, event loop resolved" and cancels this test and
+    // every test after it in the file. A referenced timer held for the length of the
+    // wait fixes the test's lifecycle only; the 20 ms timeout under test is untouched.
+    const holdEventLoopOpen = setTimeout(() => {}, 5000);
+    let error;
+    try {
+      error = await provider.generateJson({ system: 's', prompt: 'p', schema: {} }).catch((e) => e);
+    } finally {
+      clearTimeout(holdEventLoopOpen);
+    }
 
     assert.equal(error.code, LLM_ERRORS.TIMEOUT);
     assert.equal(error.statusCode, 504);

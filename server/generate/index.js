@@ -63,7 +63,7 @@ export const GENERATION_ERRORS = {
  * it means everything downstream can read nested fields without guarding each
  * one.
  */
-function requireGeneratableInput(canonical) {
+export function requireGeneratableInput(canonical) {
   const requirements = canonical?.requirements ?? [];
 
   if (requirements.length === 0) {

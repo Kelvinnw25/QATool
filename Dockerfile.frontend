@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+#
+# QATOOL UI (React + Vite dev server) for local development. See docs/DOCKER_LOCAL.md.
+#
+# This container receives no keys and no tokens. The browser talks to this server, and this server
+# proxies /api to the backend named by API_PROXY_TARGET (web/vite.config.js).
+# The source is copied into the image, so a code change needs a rebuild of this service.
+
+ARG NODE_VERSION=22.15.0
+FROM node:${NODE_VERSION}-bookworm-slim
+
+WORKDIR /app
+RUN chown node:node /app
+USER node
+
+# Only the web workspace's dependencies (react, vite, plugin-react) from the lockfile. The
+# root's server dependencies are not installed here; root package.json is needed for the workspace.
+COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node web/package.json ./web/package.json
+RUN npm ci --workspace web && npm cache clean --force
+
+COPY --chown=node:node web/index.html web/vite.config.js ./web/
+COPY --chown=node:node web/src ./web/src
+
+WORKDIR /app/web
+EXPOSE 5173
+
+# Any HTTP answer from Vite means it is serving.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+
+# --host 0.0.0.0: reachable from the published port. --strictPort: fail instead of moving to 5174.
+CMD ["node", "../node_modules/vite/bin/vite.js", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]

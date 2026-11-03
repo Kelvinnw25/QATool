@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { SessionPanel } from './components/SessionPanel.jsx';
+import { SessionProvider } from './session/SessionProvider.jsx';
+import { useConfig } from './state/appConfig.js';
 import { CanonicalProvider, useCanonical } from './state/canonical.jsx';
 import { StageNav } from './components/StageNav.jsx';
 import { UploadStage } from './stages/UploadStage.jsx';
@@ -65,6 +68,8 @@ function Wizard() {
       <StageNav current={step} onSelect={setStep} reachable={reachable} />
 
       <main>
+        <SessionPanel />
+
         {step === 'upload' && (
           <UploadStage
             onAdvance={setStep}
@@ -92,9 +97,15 @@ function Wizard() {
 }
 
 export function App() {
-  return (
+  const { demo, problems } = useConfig();
+
+  const workflow = (
     <CanonicalProvider>
       <Wizard />
     </CanonicalProvider>
   );
+
+  // A demo build that is missing its settings shows what is missing instead of starting a session.
+  if (!demo || problems.length > 0) return workflow;
+  return <SessionProvider>{workflow}</SessionProvider>;
 }

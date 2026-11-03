@@ -1,5 +1,7 @@
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8 } from 'fflate';
 import { AppError } from '../../lib/errors.js';
+import { config } from '../../config.js';
+import { safeUnzip } from '../zip.js';
 
 /**
  * XLSX extraction, reusing the OOXML approach already proven in the export
@@ -10,11 +12,12 @@ import { AppError } from '../../lib/errors.js';
  * case matrix pasted into Excel survives as rows, not as a wall of words.
  */
 
-export function parseXlsx(buffer, documentId) {
+export function parseXlsx(buffer, documentId, limits = config.security.limits) {
   let parts;
   try {
-    parts = unzipSync(new Uint8Array(buffer));
+    parts = safeUnzip(new Uint8Array(buffer), limits);
   } catch (cause) {
+    if (cause instanceof AppError) throw cause;
     throw new AppError('CORRUPT_DOCUMENT', `The XLSX could not be opened: ${cause.message}`, 422);
   }
 
@@ -22,11 +25,21 @@ export function parseXlsx(buffer, documentId) {
     throw new AppError('CORRUPT_DOCUMENT', 'The XLSX has no xl/workbook.xml part.', 422);
   }
 
+  // Every XML part is read as text and walked with regular expressions, so each one's
+  // size is bounded first, and the sheet, row and cell counts are bounded as they are read.
+  for (const [name, part] of Object.entries(parts)) {
+    if (name.endsWith('.xml') && part.length > limits.xmlPartMaxBytes) throw tooComplex();
+  }
+
   const sharedStrings = parts['xl/sharedStrings.xml']
-    ? readSharedStrings(strFromU8(parts['xl/sharedStrings.xml']))
+    ? readSharedStrings(strFromU8(parts['xl/sharedStrings.xml']), limits.xlsxMaxCells)
     : [];
 
   const sheets = readSheetIndex(parts);
+  if (sheets.length > limits.xlsxMaxSheets) throw tooComplex();
+
+  // Shared across the workbook: the ceilings are on the whole file, not per sheet.
+  const budget = { rows: 0, cells: 0, maxRows: limits.xlsxMaxRows, maxCells: limits.xlsxMaxCells };
 
   const blocks = [];
   let characterCount = 0;
@@ -35,7 +48,7 @@ export function parseXlsx(buffer, documentId) {
     const sheetPart = parts[sheet.path];
     if (!sheetPart) continue;
 
-    const rows = readRows(strFromU8(sheetPart), sharedStrings);
+    const rows = readRows(strFromU8(sheetPart), sharedStrings, budget);
     if (rows.length === 0) continue;
 
     // The first non-empty row is treated as headers when every cell is short
@@ -87,9 +100,18 @@ function decodeXml(value) {
     .replace(/&amp;/g, '&');
 }
 
-function readSharedStrings(xml) {
+function tooComplex() {
+  return new AppError(
+    'DOCUMENT_TOO_COMPLEX',
+    'The XLSX holds more content than this service can process.',
+    422
+  );
+}
+
+function readSharedStrings(xml, maxStrings) {
   const strings = [];
   for (const [, body] of xml.matchAll(/<si>([\s\S]*?)<\/si>/g)) {
+    if (strings.length >= maxStrings) throw tooComplex();
     let text = '';
     for (const [, run] of body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)) text += run;
     strings.push(decodeXml(text));
@@ -129,17 +151,22 @@ function readSheetIndex(parts) {
   return sheets;
 }
 
-function readRows(sheetXml, sharedStrings) {
+function readRows(sheetXml, sharedStrings, budget) {
   const rows = [];
 
   for (const [, rowNumber, body] of sheetXml.matchAll(
     /<row[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g
   )) {
+    budget.rows += 1;
+    if (budget.rows > budget.maxRows) throw tooComplex();
     const cells = [];
 
     for (const [, ref, attributes, inner] of body.matchAll(
       /<c[^>]*\br="([A-Z]+\d+)"([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g
     )) {
+      budget.cells += 1;
+      if (budget.cells > budget.maxCells) throw tooComplex();
+
       let value = '';
 
       if (inner) {

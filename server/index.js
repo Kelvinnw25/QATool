@@ -1,16 +1,46 @@
 import { buildApp } from './app.js';
 import { config } from './config.js';
 
-const app = buildApp({
-  logger: {
-    level: config.logLevel,
-    // PRD 20: never log document content or secrets. Keep request logging to
-    // method and path.
-    serializers: {
-      req: (request) => ({ method: request.method, url: request.url }),
+// buildApp() refuses to run public mode without the settings that make it safe.
+// That is reported plainly and without a stack: the message names variables,
+// never their values.
+let app;
+try {
+  app = buildApp({
+    logger: {
+      level: config.logLevel,
+      // PRD 20: never log document content or secrets. Keep request logging to
+      // method and path.
+      serializers: {
+        req: (request) => ({ method: request.method, url: request.url }),
+      },
     },
-  },
-});
+  });
+} catch (error) {
+  console.error(`QATOOL cannot start. ${error.message}`);
+  process.exit(1);
+}
+
+for (const warning of config.security.warnings) app.log.warn(warning);
+if (config.security.publicMode) {
+  app.log.info(
+    { event: 'public_mode', owners: config.security.access.ownerEmails.length },
+    'PUBLIC_MODE is on: every /api route needs a valid Cloudflare Access token from an owner.'
+  );
+}
+
+if (config.security.demoMode) {
+  const { jobs } = config.security;
+  app.log.info(
+    {
+      event: 'demo_mode',
+      workers: jobs.workers,
+      max_pending: jobs.maxPending,
+      origins: config.security.allowedOrigins.length,
+    },
+    'PUBLIC_DEMO is on: visitors work through /api/jobs with a Turnstile-issued ticket. The model is fixed on the server.'
+  );
+}
 
 async function shutdown(signal) {
   app.log.info(

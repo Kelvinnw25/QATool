@@ -93,8 +93,10 @@ All confirmed by the current repository:
 - **No test execution engine.** Execution columns are exported blank.
 - **No autonomous review → regenerate loop.** Gemini #3 returns findings; no
   code path regenerates from them.
-- **No authentication.** The server binds to `127.0.0.1` by default. Anything
-  beyond local single-user use needs auth first. _(Not implemented.)_
+- **Authentication is opt-in.** The server binds to `127.0.0.1` by default and
+  has none for local single-user use. For a public demo behind Cloudflare Access,
+  `PUBLIC_MODE=true` requires the owner's signed token on every route
+  ([PUBLIC_DEMO_SECURITY.md](PUBLIC_DEMO_SECURITY.md)).
 - **No OCR.** An image-only PDF extracts to zero characters and raises
   `LOW_EXTRACTED_TEXT`.
 - **No silent repair.** Nothing normalises, reinterprets or fabricates a model
@@ -797,6 +799,19 @@ Errors are uniform:
 { "error": { "code": "EXPORT_BLOCKED", "message": "...", "details": [] } }
 ```
 
+### Public demo flow (`PUBLIC_DEMO=true` on the server, `VITE_PUBLIC_DEMO=true` in the build)
+
+The routes above are the local tool's. In the public demo the browser does not call `/api/extract`,
+`/api/generate` or a semantic `/api/validate` at all (the server does not register them); the same three
+phases run as one queued **job**. The page, in order: draws the Turnstile widget and calls `POST /api/session`
+for a short-lived ticket (held in memory, sent as `Authorization: Bearer`); submits `POST /api/jobs`
+(multipart documents, or JSON `{from, canonical, test_points}` to resume); polls `GET /api/jobs/:id` (which
+keeps the 45 s lease alive) showing the queue position and the current phase; reads
+`GET /api/jobs/:id/result` once the job ends (partial results included after a failure); and can call
+`POST /api/jobs/:id/cancel`. Validation without a model and export (`POST /api/validate`, `POST /api/export`)
+keep working with the ticket. The browser never sends or learns a model. Code: `web/src/api.js`,
+`web/src/session/`, `web/src/jobs/`; contract and behaviour: [PUBLIC_DEMO_JOBS.md](PUBLIC_DEMO_JOBS.md).
+
 **Test points are deliberately not in the canonical model.** They are returned
 by `/api/extract`, held in a React ref, posted back, and revalidated and pinned
 to real requirement ids on arrival — so a tampered payload degrades prompt
@@ -947,6 +962,14 @@ APAYEE_BASE_URL=http://127.0.0.1:4100
 APAYEE_TOKEN=                # required unless Apayee is on this machine
 APAYEE_QUEUE_WAIT_MS=60000
 ```
+
+Security and resource settings (`PUBLIC_MODE`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`,
+`OWNER_EMAILS`, `ALLOWED_ORIGINS`, `TRUSTED_PROXY_PEERS`, the upload, ZIP and PDF
+limits, and the model gate) are described in
+[PUBLIC_DEMO_SECURITY.md](PUBLIC_DEMO_SECURITY.md) and listed in `.env.example`.
+All are optional; leaving `PUBLIC_MODE` unset keeps the behaviour described here.
+`PUBLIC_DEMO` is a separate mode (visitors, tickets and the async job API under `server/jobs/`);
+see [PUBLIC_DEMO_JOBS.md](PUBLIC_DEMO_JOBS.md). Both leave the routes described in this document unchanged.
 
 **Temperature is deliberately not sent unless set.** Google's guidance for
 Gemini 3 models is to leave it at the default of 1.0; lowering it risks looping
@@ -1183,23 +1206,28 @@ any request to a host other than this machine **throw**. The suite is therefore
 free, offline and deterministic by enforcement, not by convention.
 
 Run `npm test` for the current result. The suite is large and keeps growing, so
-this document does not quote a count: any number written here would be stale by
-the next change. The only skipped tests are the opt-in live ones - Gemini
+a count written here goes stale; the figure recorded at the time the public demo
+frontend landed (2026-11-03) is **1,978 tests: 1,967 pass, 0 fail, 0 cancelled,
+1 skipped, 10 todo, exit code 0**, and any cancelled test since is a regression
+(the 11 cancellations in `server/llm/llm.test.js` that older notes mention were a
+test-only timer problem and are fixed). The skipped test and the todo tests were
+already there. The only skipped tests are the opt-in live ones - Gemini
 (`QATOOL_LIVE_LLM=1`) and Apayee (`QATOOL_APAYEE_SMOKE=1`) - which need a real
 provider or the Apayee project and are described below.
 
-| Kind           | Where                                                                                                                                                                                                           |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit           | Per module — `server/structure/structure.test.js`, `server/scenario/obligations.test.js`, `server/generate/generate.test.js`, …                                                                                 |
-| Integration    | `server/three-call-pipeline.test.js` — real DOCX upload through all three stages to export                                                                                                                      |
-| Integration    | `server/pipeline-integration.test.js`                                                                                                                                                                           |
-| Invariant      | `server/no-persistence.test.js` — asserts no database, no migrate script, no upload directory                                                                                                                   |
-| Regression     | `server/generate/granularity.test.js` — branch splitting, completeness, traceability                                                                                                                            |
-| Frontend       | `web/src/stages/ResultsStage.test.js`                                                                                                                                                                           |
-| Model choice   | `server/llm/catalog.test.js`, `server/routes/provider-selection.test.js`, `web/src/{providers,pipeline.provider,api.provider}.test.js`, `web/src/state/run.test.js`, `web/src/components/ModelSelector.test.js` |
-| Live (skipped) | `server/llm/gemini.live.test.js` — needs `QATOOL_LIVE_LLM=1`                                                                                                                                                    |
-| Integration    | `server/llm/apayee.pipeline.test.js` — whole pipeline through the Apayee adapter, against a fake gateway                                                                                                        |
-| Live (skipped) | `server/llm/apayee.smoke.test.js` — real Apayee in-process, needs `QATOOL_APAYEE_SMOKE=1`                                                                                                                       |
+| Kind           | Where                                                                                                                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unit           | Per module — `server/structure/structure.test.js`, `server/scenario/obligations.test.js`, `server/generate/generate.test.js`, …                                                                                          |
+| Integration    | `server/three-call-pipeline.test.js` — real DOCX upload through all three stages to export                                                                                                                               |
+| Integration    | `server/pipeline-integration.test.js`                                                                                                                                                                                    |
+| Invariant      | `server/no-persistence.test.js` — asserts no database, no migrate script, no upload directory                                                                                                                            |
+| Regression     | `server/generate/granularity.test.js` — branch splitting, completeness, traceability                                                                                                                                     |
+| Public demo UI | `web/src/{config,api.demo,bundle,useProviders}.test.js`, `web/src/session/session.test.js`, `web/src/jobs/{run,failure}.test.js`, `web/src/components/demo.ui.test.js` (against `web/src/jobs/fixtures/fake-backend.js`) |
+| Frontend       | `web/src/stages/ResultsStage.test.js`                                                                                                                                                                                    |
+| Model choice   | `server/llm/catalog.test.js`, `server/routes/provider-selection.test.js`, `web/src/{providers,pipeline.provider,api.provider}.test.js`, `web/src/state/run.test.js`, `web/src/components/ModelSelector.test.js`          |
+| Live (skipped) | `server/llm/gemini.live.test.js` — needs `QATOOL_LIVE_LLM=1`                                                                                                                                                             |
+| Integration    | `server/llm/apayee.pipeline.test.js` — whole pipeline through the Apayee adapter, against a fake gateway                                                                                                                 |
+| Live (skipped) | `server/llm/apayee.smoke.test.js` — real Apayee in-process, needs `QATOOL_APAYEE_SMOKE=1`                                                                                                                                |
 
 **What is mocked:** only the LLM provider, via `MockProvider` — a real
 implementation of the same interface, not a stub, so anything `GeminiProvider`
@@ -1232,7 +1260,7 @@ Limitations of the current design, not defects, unless stated otherwise.
 | 11  | **`confidence` is a hard enum**     | An unrecognised value still fails the whole generation reply — the one surviving whole-batch-kill vector.                                                                                                                                      |
 | 12  | **Model compliance is unproven**    | The granularity and completeness rules are **prompt instructions**. Tests assert the instruction is present and that the pipeline does not undo a correctly split batch. **No live run has yet been recorded proving the model follows them.** |
 | 13  | **Run-level tracing is not wired**  | `server/lib/trace.js` exists but **nothing imports it**. Observability today is Fastify request logging only. _(Not implemented.)_                                                                                                             |
-| 14  | **No authentication**               | _(Not implemented.)_ Local single-user use only.                                                                                                                                                                                               |
+| 14  | **Auth only in public mode**        | None locally (single-user). `PUBLIC_MODE=true`: Cloudflare Access token on every route. See PUBLIC_DEMO_SECURITY.md.                                                                                                                           |
 
 ---
 
@@ -1251,7 +1279,7 @@ Only what is actually implemented:
 | **Request logging**           | Method and URL only — `server/index.js` installs a `req` serializer that emits nothing else                                             |
 | **Prompt / response logging** | **Not logged.** No code path writes a prompt or a model reply to a log                                                                  |
 | **Error responses**           | Controlled `AppError` shapes; internals are logged and replaced with a generic message                                                  |
-| **Transport**                 | Plain HTTP on `127.0.0.1`. **No TLS, no auth** _(not implemented)_                                                                      |
+| **Transport**                 | Plain HTTP on `127.0.0.1`. TLS comes from the tunnel; auth only in `PUBLIC_MODE`                                                        |
 
 **Operational note, not a code guarantee:** Google's terms forbid confidential
 data on the unpaid tier. Sending real internal documents through a free-tier key
@@ -1399,4 +1427,5 @@ Clearly identified follow-ups — **none of these are implemented**:
    cannot fail a whole generation reply (limitation #11).
 4. **Route test points through `matchObligations`** for test-point coverage,
    rather than keeping two parallel guidance sources (limitation #8).
-5. **Authentication and TLS** before any non-local deployment.
+5. **TLS** for any deployment that is not behind the tunnel. Authentication for
+   the tunnel setup exists (`PUBLIC_MODE`, [PUBLIC_DEMO_SECURITY.md](PUBLIC_DEMO_SECURITY.md)).

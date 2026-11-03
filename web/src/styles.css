@@ -685,3 +685,38 @@ ul.scope li {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+/* --- Public demo: session and job progress --- */
+
+.session-line {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.turnstile-box {
+  min-height: 70px;
+  margin-top: 8px;
+}
+
+.job-progress {
+  margin-top: 12px;
+}
+
+.job-line {
+  margin: 8px 0;
+}
+
+.job-state {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.job-state.ok {
+  border-color: var(--ok-border);
+  color: var(--ok-text);
+}

@@ -21,6 +21,22 @@ import { buildSampleCanonical } from '../export/fixtures/sample-canonical.js';
  * asking what values the tool accepts, and it costs nothing to serve.
  */
 export default async function metaRoutes(fastify) {
+  /**
+   * Liveness for Docker, and nothing else: "this process answers". The only route
+   * that needs no credentials in public mode, so it says nothing about the system
+   * (no time, no providers, no configuration) and calls nothing. `/api/health`
+   * below is the fuller answer and sits behind authentication in public mode.
+   * Its own info-level request logs are silenced: Docker asks every few seconds.
+   */
+  fastify.get(
+    '/healthz',
+    { config: { public: true }, logLevel: 'warn' },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store');
+      return { status: 'ok' };
+    }
+  );
+
   fastify.get('/api/health', async () => ({
     status: 'ok',
     stateless: true,

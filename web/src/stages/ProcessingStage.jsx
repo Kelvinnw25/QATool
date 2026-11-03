@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
+import { JobProgress } from '../components/JobProgress.jsx';
+import { describeFailure } from '../jobs/failure.js';
+import { createJobHandle, runJobPipeline, sharedBoot } from '../jobs/run.js';
 import { PHASE_KEYS, runPipeline } from '../pipeline.js';
+import { useSession } from '../session/SessionProvider.jsx';
+import { useConfig } from '../state/appConfig.js';
 import { useCanonical } from '../state/canonical.jsx';
 
 /**
@@ -53,6 +58,8 @@ const PHASES = PHASE_KEYS.map((key) => ({ key, label: PHASE_LABELS[key] }));
 
 export function ProcessingStage({ files, onAdvance, onBack }) {
   const { canonical, run: current, actions } = useCanonical();
+  const { demo } = useConfig();
+  const session = useSession();
 
   // Frozen when the run began (see state/run.js). Read once here and used for
   // every phase and every retry; there is no setter to change it from this page.
@@ -64,6 +71,20 @@ export function ProcessingStage({ files, onAdvance, onBack }) {
   const [failure, setFailure] = useState(null);
   const [extraction, setExtraction] = useState(null);
 
+  // Public demo only. The backend job as last reported, what the page is doing before there is one,
+  // and the things a visitor should be told about while it runs.
+  const [job, setJob] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [waiting, setWaiting] = useState(null);
+  const [leaseGapMs, setLeaseGapMs] = useState(null);
+  const [trouble, setTrouble] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const handleRef = useRef(null);
+  const jobRef = useRef(null);
+  const startedRef = useRef(false);
+
   // Where a run STARTS: the project as last rendered. A retry is a click, so by
   // then everything earlier phases merged has rendered. Never read mid-run - a
   // phase's merge is not rendered until the run's task ends, which is why
@@ -74,8 +95,118 @@ export function ProcessingStage({ files, onAdvance, onBack }) {
   // Survives the phase loop without re-rendering it; discarded with the page.
   const testPointsRef = useRef([]);
 
+  /**
+   * The public demo's run: one backend job from `fromPhase` onward, followed until it ends. The
+   * same callbacks as the local run hand each finished phase to the same state; what differs is
+   * that the server, not this page, runs the phases and the page watches.
+   */
+  const runJob = useCallback(
+    async (fromPhase, attach = null) => {
+      setFailure(null);
+      setCancelled(false);
+      setCancelling(false);
+      setWaiting(null);
+      setTrouble(null);
+      setLeaseGapMs(null);
+      if (!attach) {
+        setJob(null);
+        setNotice(null);
+      }
+      setSubmitting(!attach);
+      actions.setRunActive(runId, true);
+
+      const startIndex = PHASES.findIndex((phase) => phase.key === fromPhase);
+      setCompleted(PHASES.slice(0, startIndex).map((phase) => phase.key));
+
+      const handle = createJobHandle(api);
+      handleRef.current = handle;
+      const working = canonicalRef.current;
+
+      const outcome = await runJobPipeline({
+        from: fromPhase,
+        canonical: working,
+        files,
+        projectName: working.project.project_name,
+        testPoints: testPointsRef.current,
+        isCurrent: () => actions.isCurrentRun(runId),
+        api,
+        handle,
+        boot: sharedBoot,
+        attach,
+        on: {
+          waiting: (info) => setWaiting(info),
+          accepted: (accepted, info) => {
+            setSubmitting(false);
+            setWaiting(null);
+            setJob(accepted);
+            jobRef.current = accepted;
+            if (info.recovered && !attach) setNotice('reconnected');
+            else if (info.restarted) setNotice('restarted');
+          },
+          progress: (view) => {
+            setJob(view);
+            jobRef.current = view;
+            setTrouble(null);
+          },
+          pollTrouble: (info) => setTrouble(info),
+          leaseGap: (ms) => setLeaseGapMs(ms),
+          extracted: (result, partial) => {
+            setExtraction(result);
+            testPointsRef.current = result.test_points ?? [];
+            actions.mergePhase(partial);
+          },
+          generated: (result, partial) => {
+            actions.mergePhase(partial);
+            actions.setGeneration({ warnings: result.warnings, metadata: result.metadata });
+          },
+          validated: (validation) => actions.setValidation(validation),
+          completed: (phase) => setCompleted((previous) => [...previous, phase]),
+          cancelled: () => setCancelled(true),
+          failed: (phase, cause) => {
+            setSubmitting(false);
+            setWaiting(null);
+            const described = describeFailure(cause);
+            setFailure({
+              phase,
+              message: described.message,
+              code: cause.code,
+              details: Array.isArray(cause.details) ? cause.details : [],
+              described,
+              ambiguous: cause.ambiguous === true,
+            });
+          },
+        },
+      });
+
+      if (outcome.superseded) return;
+
+      actions.setRunActive(runId, false);
+      setSubmitting(false);
+      if (outcome.completed) onAdvance('results');
+    },
+    [actions, files, onAdvance, runId]
+  );
+
+  async function cancelJob() {
+    setCancelling(true);
+    try {
+      const latest = await handleRef.current?.cancel();
+      if (latest) setJob(latest);
+    } catch (cause) {
+      setCancelling(false);
+      setFailure({
+        phase: failure?.phase ?? 'extract',
+        message: describeFailure(cause).message,
+        code: cause.code,
+        details: [],
+        described: describeFailure(cause),
+      });
+    }
+  }
+
   const run = useCallback(
     async (fromPhase = 'extract') => {
+      if (demo) return runJob(fromPhase);
       setFailure(null);
       actions.setRunActive(runId, true);
 
@@ -124,10 +255,16 @@ export function ProcessingStage({ files, onAdvance, onBack }) {
       setActive(null);
       onAdvance('results');
     },
-    [actions, files, onAdvance, provider, runId]
+    [actions, demo, files, onAdvance, provider, runId, runJob]
   );
 
   useEffect(() => {
+    // Under StrictMode (development) this effect runs twice; one backend job per page is enough, and
+    // a second submission would only be told the first is still active.
+    if (demo) {
+      if (startedRef.current) return;
+      startedRef.current = true;
+    }
     run('extract');
     // Runs once on entry; retry is driven by the button below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,19 +276,28 @@ export function ProcessingStage({ files, onAdvance, onBack }) {
     <>
       <div className="card">
         <h2>Processing</h2>
-        <p className="muted" style={{ marginTop: -4 }}>
-          Model for this run: <span className="badge">{modelLabel}</span> &mdash; fixed for every
-          step and every retry.
-        </p>
+        {!demo && (
+          <p className="muted" style={{ marginTop: -4 }}>
+            Model for this run: <span className="badge">{modelLabel}</span> &mdash; fixed for every
+            step and every retry.
+          </p>
+        )}
         <ul className="phases">
           {PHASES.map((phase) => {
-            const state = completed.includes(phase.key)
-              ? 'done'
-              : active === phase.key
-                ? 'active'
-                : failure?.phase === phase.key
-                  ? 'failed'
-                  : 'waiting';
+            const state = demo
+              ? demoPhaseState(
+                  job?.phases?.[phase.key],
+                  completed.includes(phase.key),
+                  failure,
+                  phase.key
+                )
+              : completed.includes(phase.key)
+                ? 'done'
+                : active === phase.key
+                  ? 'active'
+                  : failure?.phase === phase.key
+                    ? 'failed'
+                    : 'waiting';
 
             return (
               <li key={phase.key} className={`phase ${state}`}>
@@ -164,7 +310,52 @@ export function ProcessingStage({ files, onAdvance, onBack }) {
             );
           })}
         </ul>
+
+        {demo && !failure && !cancelled && (
+          <JobProgress
+            job={job}
+            submitting={submitting}
+            waiting={waiting}
+            trouble={trouble}
+            leaseGapMs={leaseGapMs}
+            cancelling={cancelling}
+            onCancel={cancelJob}
+            phaseLabels={PHASE_LABELS}
+          />
+        )}
+
+        {demo && notice === 'reconnected' && (
+          <div className="notice">
+            You already had a job for this step in progress, so this page reconnected to it instead
+            of starting another.
+          </div>
+        )}
+        {demo && notice === 'restarted' && (
+          <div className="notice">
+            The demo server restarted since your last job, so anything it was holding was lost. This
+            run started fresh.
+          </div>
+        )}
       </div>
+
+      {demo && cancelled && (
+        <div className="card">
+          <div className="notice">
+            <strong>The job was cancelled.</strong> Nothing more will run.
+            {extractionDone && ' What was already extracted is kept.'}
+          </div>
+          <div className="row">
+            {extractionDone && (
+              <button type="button" onClick={() => onAdvance('results')}>
+                View extracted requirements &rarr;
+              </button>
+            )}
+            <button type="button" className="secondary" onClick={onBack}>
+              Back to upload
+            </button>
+          </div>
+        </div>
+      )}
 
       {extractionDone && extraction && <ExtractionReport extraction={extraction} />}
 
@@ -187,15 +378,34 @@ export function ProcessingStage({ files, onAdvance, onBack }) {
             )}
           </div>
 
-          <p className="muted">
-            {RETRY_ADVICE[failure.code] ??
-              'Everything completed before this step is still held in memory. Retrying resumes from here — documents are not re-uploaded and earlier work is not repeated.'}
-          </p>
+          {!demo && (
+            <p className="muted">
+              {RETRY_ADVICE[failure.code] ??
+                'Everything completed before this step is still held in memory. Retrying resumes from here — documents are not re-uploaded and earlier work is not repeated.'}
+            </p>
+          )}
+          {demo && (
+            <p className="muted">
+              Everything finished before this step is still in this page. Retrying resumes from here
+              {failure.phase === 'extract' ? ' and sends your documents again' : ''}.
+              {failure.ambiguous &&
+                ' The connection dropped while sending, so it is not known whether the server received it. Nothing was sent twice: pressing the button checks first, and if the server already has your job this page reconnects to it instead of starting another.'}
+            </p>
+          )}
 
           <div className="row">
-            <button type="button" onClick={() => run(failure.phase)}>
-              Retry from this step
-            </button>
+            {demo ? (
+              <DemoRetry
+                failure={failure}
+                sessionReady={session.ready}
+                onRetry={() => run(failure.phase)}
+                onReconnect={() => runJob(failure.phase, jobRef.current)}
+              />
+            ) : (
+              <button type="button" onClick={() => run(failure.phase)}>
+                Retry from this step
+              </button>
+            )}
             {extractionDone && (
               <button type="button" onClick={() => onAdvance('results')}>
                 View extracted requirements &rarr;
@@ -278,6 +488,69 @@ function ExtractionReport({ extraction }) {
             ))}
           </ul>
         </div>
+      )}
+    </>
+  );
+}
+
+/** A phase's row state, from what the backend reported (or, before it did, what this page knows). */
+function demoPhaseState(reported, finished, failure, key) {
+  if (reported === 'done' || reported === 'skipped') return 'done';
+  if (reported === 'running') return 'active';
+  if (reported === 'failed' || reported === 'cancelled') return 'failed';
+  if (finished) return 'done';
+  return failure?.phase === key ? 'failed' : 'waiting';
+}
+
+/**
+ * The retry control for a failed demo step. It waits out a Retry-After the server gave, is not
+ * offered when a retry cannot help (a rejected file, a blocked site), and for a lost connection
+ * offers to follow the same job rather than start another.
+ */
+function DemoRetry({ failure, sessionReady, onRetry, onReconnect }) {
+  const { retry, retryAfterSeconds, reconnect, kind } = failure.described;
+  const [readyAt] = useState(() => Date.now() + (retryAfterSeconds ?? 0) * 1000);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (Date.now() >= readyAt) return undefined;
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      if (Date.now() >= readyAt) clearInterval(timer);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [readyAt]);
+
+  const remaining = Math.max(0, Math.ceil((readyAt - now) / 1000));
+
+  if (kind === 'session') {
+    return (
+      <button type="button" onClick={onRetry} disabled={!sessionReady}>
+        {sessionReady ? 'Start this step again' : 'Verify your session above to continue'}
+      </button>
+    );
+  }
+
+  return (
+    <>
+      {reconnect && (
+        <button type="button" onClick={onReconnect}>
+          Reconnect to the job
+        </button>
+      )}
+      {retry !== 'never' && (
+        <button
+          type="button"
+          className={reconnect ? 'secondary' : undefined}
+          onClick={onRetry}
+          disabled={remaining > 0 || !sessionReady}
+        >
+          {remaining > 0
+            ? `Try again in ${remaining}s`
+            : failure.ambiguous
+              ? 'Check and try again'
+              : 'Try again'}
+        </button>
       )}
     </>
   );

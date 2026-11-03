@@ -1,6 +1,6 @@
-import { unzipSync } from 'fflate';
 import { AppError } from '../lib/errors.js';
 import { looksLikeTranscription } from './parsers/transcription.js';
+import { safeUnzip } from './zip.js';
 
 /**
  * Identifies an uploaded file from its bytes, not its name.
@@ -63,8 +63,10 @@ export function detectFileType(buffer, filename) {
 
   let parts;
   try {
-    parts = unzipSync(new Uint8Array(buffer));
-  } catch {
+    // Bounded: an archive that expands past the limits is refused, not inflated.
+    parts = safeUnzip(new Uint8Array(buffer));
+  } catch (cause) {
+    if (cause instanceof AppError) throw cause;
     throw new AppError(
       'CORRUPT_DOCUMENT',
       `'${name}' looks like an Office file but could not be opened. It may be corrupt.`,

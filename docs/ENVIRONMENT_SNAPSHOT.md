@@ -24,6 +24,8 @@ compatibility checks and quick recovery. Machine-readable twin:
 12. [Recovery procedure](#12-recovery-procedure)
 13. [Apayee integration](#13-apayee-integration)
 14. [Integrity: hashes and Git state](#14-integrity-hashes-and-git-state)
+15. [Addendum: after the backend security hardening](#15-addendum-after-the-backend-security-hardening-2026-11-03)
+16. [Addendum: public demo backend and frontend, test baseline, lockfile check](#16-addendum-public-demo-backend-and-frontend-test-baseline-lockfile-check-2026-11-03)
 
 ## 1. Snapshot date and purpose
 
@@ -183,11 +185,11 @@ The list comes from `server/config.js`.
 | `APAYEE_QUEUE_WAIT_MS`  | set               | Extra allowance for Apayee's queue                            |
 
 - `.env` is Git-ignored (`.gitignore` rule `.env`, with `!.env.example` re-included).
-- **`.env.example` is absent from this checkout**, although `README.md` and `CLAUDE.md` describe it.
-  `.env` was therefore written from `server/config.js` and `docs/IMPLEMENTATION.md` section 17. Restore
-  the example from the original repository when it is available.
-- No `VITE_*` variables exist. Keys and tokens are server-side only and must never be put in a
-  Vite-exposed variable.
+- **`.env.example` was absent from this checkout when this snapshot was taken** (it exists now, at the root
+  and in `web/`; see section 16). `.env` was therefore written from `server/config.js` and
+  `docs/IMPLEMENTATION.md` section 17.
+- No `VITE_*` variables existed at the time. Four exist now (section 16), all public by design. Keys and
+  tokens are server-side only and must never be put in a Vite-exposed variable.
 
 ## 9. Ports and runtime configuration
 
@@ -235,10 +237,11 @@ they make real provider calls.
 | **Currently observed**            | Node.js 22.15.0, npm 11.6.4, Git 2.48.1.windows.1, Windows 11 build 26300                                                                                                          |
 | **Previously verified (partial)** | Same Node.js, npm and Git as above: `format:check` and `build` passed; `npm test` did not exit cleanly (below)                                                                     |
 | **Minimum required**              | Node.js `>=22.13.0` (project `engines`, bound by `pdfjs-dist`). npm has no declared minimum; the lockfile is version 3, which needs a modern npm (the exact floor was not tested)  |
-| **Suspected issues**              | Node.js 22.15.0 **and** 23.11.0 both show the 11 cancelled tests in `server/llm/llm.test.js`                                                                                       |
+| **Suspected issues**              | At snapshot time: Node.js 22.15.0 **and** 23.11.0 both showed the 11 cancelled tests in `server/llm/llm.test.js` (**resolved since, section 16**)                                  |
 | **Not tested**                    | Node.js 24.x (including the 24.18 the README says it was developed on), Node.js 25, npm other than 11.6.4, Git other than 2.48.1, other operating systems, a production deployment |
 
-No version is fully verified: `npm test` exits 1 on every runtime tried.
+At the time of this snapshot no version was fully verified: `npm test` exited 1 on every runtime tried. That has
+changed: the cancellations were a test-only problem and are fixed (section 16).
 
 ### Historical observations (earlier setup session, same PC)
 
@@ -264,6 +267,10 @@ The environment matches the historical record. The Node.js 23.11.0 run used the 
 disk, invoked directly with the same flags as `npm test`; nothing was installed and PATH was not changed.
 
 ### The cancelled-test issue
+
+> **Resolved (section 16).** Everything in this subsection describes the state when the snapshot was taken. The
+> cause was a test-only timer reference in `server/llm/llm.test.js`; there are now 0 cancelled tests and
+> `npm test` exits 0. A cancelled test today is a regression.
 
 - **What happens:** in `llm.test.js` the test "reports a timeout as a timeout" never settles; the
   runner reports `Promise resolution is still pending but the event loop has already resolved`, and
@@ -341,9 +348,10 @@ Then repeat step 2.
 npm run format:check; npm run build; npm test
 ```
 
-On the recorded versions the expected result is **1422 passed, 11 cancelled, 0 failed, exit code 1**
-(section 11). A different result means the environment has drifted from this snapshot. A result of
-0 cancelled and exit code 0 would be new information: record the Node.js version that produced it.
+On the recorded versions the expected result is now **1,978 tests: 1,967 passed, 0 failed, 0 cancelled,
+1 skipped, 10 todo, exit code 0** (section 16). The earlier baseline (1422 passed, 11 cancelled, exit code 1,
+section 11) is historical. A different result means the environment has drifted from this snapshot, and any
+cancelled test is a regression.
 
 **5. If the dependency tree is the suspect:** `package-lock.json` plus `npm ci` is the recovery. If the
 lockfile itself was changed, restore it with `git checkout -- package-lock.json` (this discards local
@@ -411,3 +419,72 @@ Git state at capture: branch `main`, commit `49f19f80e62d061f4e4b192d9867f8019ee
 ("chore: initial project setup"), **working tree clean** before this snapshot's own files were added.
 The Git state therefore describes the code the snapshot was taken against; the snapshot files, and the
 short links added to `README.md` and `CLAUDE.md`, are the only later changes.
+
+## 15. Addendum: after the backend security hardening (2026-11-03)
+
+Sections 5, 11 and 14 describe the baseline captured at 02:30 and stay as recorded. Since then the
+backend hardening (`docs/PUBLIC_DEMO_SECURITY.md`) changed dependencies and tests, so for those the
+figures below supersede the baseline. Node.js (22.15.0), npm (11.6.4) and Git are unchanged.
+
+| Item                                    | Baseline                                    | After hardening                                                                  |
+| --------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
+| New direct dependencies                 | none                                        | `jose` `^6.2.15` (locked 6.2.15), `@fastify/cors` `^11.4.0` (locked 11.4.0)      |
+| Transitive additions                    | none                                        | `fastify-plugin` 6.0.1, nested under `@fastify/cors`                             |
+| Existing versions changed               | n/a                                         | **none** (compared package by package against the committed lockfile)            |
+| `package-lock.json` entries             | 221                                         | 224                                                                              |
+| `package-lock.json` SHA-256             | `acf4d62f...86763`                          | `65f0f5a046c71b04736bb2da1c97992b58b191d8b948bb3badc0193113a21853`               |
+| `package.json` SHA-256                  | `6bf59237...3671a`                          | `8b83ab607337fe1955f5a2f4f2dc95e066b9ea3ff8e8bf705192e491b94a85f7`               |
+| `web/package.json` SHA-256              | `da4edd75...91007`                          | unchanged                                                                        |
+| `npm test`                              | 1444 tests, 1422 pass, 0 fail, 11 cancelled | **1588 tests, 1566 pass, 0 fail**, 11 cancelled, 1 skipped, 10 todo; exit code 1 |
+| `npm run format:check`, `npm run build` | passed                                      | passed                                                                           |
+| Docker images                           | built                                       | rebuilt; `npm ci --omit=dev` in the images accepted the new lockfile             |
+
+- The 144 new tests are all offline (`server/security/`, `server/extract/zip.test.js`). The 11 cancelled
+  tests and the exit code are the same pre-existing `server/llm/llm.test.js` group described in section 11;
+  nothing about it changed.
+- `jose` declares no Node.js engine range; `@fastify/cors` 11.4.0 depends only on `toad-cache` and
+  `fastify-plugin`, and runs on the installed Fastify 5.12.5 (exercised by the test suite).
+- To restore this state, use the same commands as section 12; `npm ci` installs both new packages from the
+  lockfile. Compare `Get-FileHash package-lock.json` with the hash above instead of section 14's.
+
+## 16. Addendum: public demo backend and frontend, test baseline, lockfile check (2026-11-03)
+
+Supersedes sections 8 (the `VITE_*` and `.env.example` statements), 11 and 12 step 4 (the cancelled tests) for
+the items below. Node.js (22.15.0), npm (11.6.4) and Git are unchanged. **Nothing is deployed.**
+
+| Item                   | Value                                                                                                                                                                 |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test`             | **1,978 tests: 1,967 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo; exit code 0** (the skipped and todo tests are the same ones as before)                            |
+| `npm run format:check` | passed                                                                                                                                                                |
+| `npm run build`        | passed                                                                                                                                                                |
+| `git diff --check`     | clean                                                                                                                                                                 |
+| New dependencies       | none since section 15 (the async job backend and the public demo frontend add code only). `package.json` and `package-lock.json` hashes are unchanged from section 15 |
+| `.env.example`         | now present: root (backend settings) and `web/.env.example` (the four `VITE_` settings below)                                                                         |
+| `VITE_*` variables     | four exist, all public by design and none secret: `VITE_PUBLIC_DEMO`, `VITE_API_BASE_URL`, `VITE_TURNSTILE_SITE_KEY`, `VITE_TURNSTILE_ACTION`                         |
+| Deployment             | none: no Vercel project, Cloudflare tunnel or Turnstile key; no real model run measured                                                                               |
+
+**The 11 cancelled tests are resolved.** The cause was in the test, not the application: the "reports a timeout as a
+timeout" test waited only on an unreferenced `AbortSignal.timeout` timer, so the process drained its event loop and the
+runner cancelled the rest of the file. A reference to the timer inside `server/llm/llm.test.js` (test-only; no production
+code, assertion or skip changed) fixed it, and all 34 tests in that file now run. Sections 5, 11 and 14 stay as the baseline
+they recorded; where they say `npm test` exits 1 with 11 cancelled tests, that was true then and is not true now. **A
+cancelled test is now a regression.** The expected result on the recorded versions is the one in the table above.
+
+### Lockfile check: 19 `libc` markers
+
+The working-tree `package-lock.json` has lost all 19 `"libc"` fields that the committed one had, on the native optional
+packages `@rollup/rollup-linux-*` and `@napi-rs/canvas-linux-*` / `@napi-rs/lzma-linux-x64-gnu` (Windows npm does not write
+them). No version, `resolved` URL or `integrity` value differs, and the only additions are the three packages in section 15.
+Checked in a throwaway Linux container (Node.js 22.15.0, npm 10.9.2, Debian bookworm glibc), using copies of the package
+files only:
+
+| Lockfile                                             | `npm ci` on Linux                                  | Native packages installed                |
+| ---------------------------------------------------- | -------------------------------------------------- | ---------------------------------------- |
+| Committed (HEAD), without the new dependencies       | 158 packages                                       | glibc variants only                      |
+| Working tree, `libc` markers missing                 | 163 packages, succeeds, lockfile left unchanged    | glibc **and musl** variants (5 unneeded) |
+| Working tree with only the 19 `libc` fields restored | 161 packages, succeeds, `--omit=dev` also succeeds | glibc variants only                      |
+
+**A lockfile change is not necessary:** installs work, versions are identical, and the Docker images build from it. The
+cost of leaving it is a few unused musl binaries on Linux and a lockfile that differs from the committed one in 76 lines of
+noise. Restoring the 19 fields (and nothing else) is safe and optional; it is not applied here, because it changes the lockfile
+hash recorded in section 15. If it is applied, regenerate nothing: copy the `libc` values from `git show HEAD:package-lock.json`.

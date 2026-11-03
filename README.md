@@ -49,7 +49,7 @@ run it. The detailed behaviour reference (23 sections, the original README) is
 | Layer    | Choice                                                                              |
 | -------- | ----------------------------------------------------------------------------------- |
 | Runtime  | Node.js >= 22.13 (developed on 24.18), ESM only, no native dependencies             |
-| Backend  | Fastify 5, `@fastify/multipart`, `@fastify/static`, Zod 4                           |
+| Backend  | Fastify 5, `@fastify/multipart`, `@fastify/static`, `@fastify/cors`, `jose`, Zod 4  |
 | Parsing  | `pdfjs-dist` (PDF), `fflate` (DOCX/XLSX are zip/XML, read directly)                 |
 | Frontend | React 19, Vite 7 (npm workspace in `web/`)                                          |
 | LLM      | Gemini API (default), Apayee gateway (optional), scripted `mock` provider for tests |
@@ -113,6 +113,7 @@ back to another provider. Full behaviour: [`docs/IMPLEMENTATION.md`](docs/IMPLEM
 QATOOL/
   README.md, CLAUDE.md      Overview/setup, and context for Claude Code
   package.json              Scripts; npm workspace "web"
+  compose.yaml, Dockerfile.*  Optional local Docker stack (UI, API, Apayee); .dockerignore is an allow-list
   .env.example              Every supported variable, no secrets (copy to .env)
   server/                   Fastify API and the whole pipeline
     index.js, app.js        Entry point; app factory, error handling, static serving
@@ -129,7 +130,7 @@ QATOOL/
     lib/                    errors, ids, text, cancellation, trace
     benchmark/              Golden oracle for one real PRD, and its tests
     testing/no-network.js   Makes any non-localhost request throw during tests
-  web/                      React UI (src/stages, src/components, src/state, api.js, pipeline.js)
+  web/                      React UI (src/stages, src/components, src/state, src/session, src/jobs, api.js, pipeline.js)
   templates/                sit-script-template.xlsx (the office template, never modified)
   scripts/                  dev.js, llm-smoke.js, e2e-live.js, qa-eval/
   fixtures/prd/             Sample PDFs (two are read by tests; see fixtures/README.md)
@@ -158,28 +159,55 @@ Then edit `.env`:
 
 Extraction and export work without any key. Check the install with `npm test` (offline, free).
 
-The exact Node.js, npm and dependency versions this was set up and checked with, the known test
-caveat, and a recovery procedure are in [`docs/ENVIRONMENT_SNAPSHOT.md`](docs/ENVIRONMENT_SNAPSHOT.md).
+Public demo: with `PUBLIC_MODE=true` the backend sits behind Cloudflare Access and only the owner can use
+it; Claude stays owner-only. What that does, every limit, and what the infrastructure must provide:
+[`docs/PUBLIC_DEMO_SECURITY.md`](docs/PUBLIC_DEMO_SECURITY.md).
+
+A second, separate public mode, `PUBLIC_DEMO=true`, is for visitors without an account: a Turnstile check buys a
+short-lived ticket, and the pipeline runs as asynchronous jobs on a bounded in-memory queue with the model fixed on
+the server. The backend and the browser side (session panel with the Turnstile widget, job queue and progress
+display, retry and error handling) are both implemented and tested offline; **nothing is deployed yet**. The
+contract, limits, frontend behaviour and measurements are in [`docs/PUBLIC_DEMO_JOBS.md`](docs/PUBLIC_DEMO_JOBS.md).
+
+The public demo page is the same UI built with `VITE_PUBLIC_DEMO=true`. It is configured by four build-time
+variables (see `web/.env.example`); every `VITE_` value is public, so no secret ever goes in one:
+
+| Variable                  | Meaning                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `VITE_PUBLIC_DEMO`        | `true` builds the public demo; anything else is the local tool, unchanged                      |
+| `VITE_API_BASE_URL`       | The API's origin, e.g. `https://api.example.com`. Empty keeps relative `/api/...` (Vite proxy) |
+| `VITE_TURNSTILE_SITE_KEY` | The Turnstile widget's public site key (the secret key stays on the backend)                   |
+| `VITE_TURNSTILE_ACTION`   | Optional; must equal the backend's `TURNSTILE_ACTION` (default `qatool_demo`)                  |
+
+The exact Node.js, npm and dependency versions this was set up and checked with, the test baseline
+(1,978 tests: 1,967 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo), and a recovery procedure are in [`docs/ENVIRONMENT_SNAPSHOT.md`](docs/ENVIRONMENT_SNAPSHOT.md).
 
 ## Environment variables
 
 Names and purpose only; defaults are in `server/config.js` and `.env.example`. Values are never committed.
 
-| Variable                                  | Purpose                                                                 |
-| ----------------------------------------- | ----------------------------------------------------------------------- |
-| `PORT`, `HOST`                            | API address (defaults `3001`, `127.0.0.1`)                              |
-| `NODE_ENV`                                | `production` makes the server also serve `web/dist`                     |
-| `LOG_LEVEL`                               | Fastify log level                                                       |
-| `SIT_TEMPLATE_PATH`                       | Path to the SIT Script template                                         |
-| `MAX_BODY_BYTES`                          | Request ceiling; also the in-memory ceiling for uploads (default 25 MB) |
-| `LLM_PROVIDER`                            | Server default: `gemini`, `mock` or `apayee`                            |
-| `GEMINI_API_KEY`                          | Gemini key (server-side only)                                           |
-| `GEMINI_MODEL`, `GEMINI_BASE_URL`         | Pin a Gemini model / endpoint                                           |
-| `LLM_TIMEOUT_MS`, `LLM_MAX_OUTPUT_TOKENS` | Per-call budget and output cap                                          |
-| `LLM_TEMPERATURE`                         | Leave unset for Gemini 3 models                                         |
-| `APAYEE_BASE_URL`                         | Where Apayee is (default `http://127.0.0.1:4100`)                       |
-| `APAYEE_TOKEN`                            | Bearer token; required for a non-local Apayee                           |
-| `APAYEE_QUEUE_WAIT_MS`                    | Extra time allowed for waiting in Apayee's queue                        |
+| Variable                                                                           | Purpose                                                                            |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `PORT`, `HOST`                                                                     | API address (defaults `3001`, `127.0.0.1`)                                         |
+| `NODE_ENV`                                                                         | `production` makes the server also serve `web/dist`                                |
+| `LOG_LEVEL`                                                                        | Fastify log level                                                                  |
+| `SIT_TEMPLATE_PATH`                                                                | Path to the SIT Script template                                                    |
+| `MAX_BODY_BYTES`                                                                   | Request ceiling; also the in-memory ceiling for uploads (default 25 MB)            |
+| `LLM_PROVIDER`                                                                     | Server default: `gemini`, `mock` or `apayee`                                       |
+| `GEMINI_API_KEY`                                                                   | Gemini key (server-side only)                                                      |
+| `GEMINI_MODEL`, `GEMINI_BASE_URL`                                                  | Pin a Gemini model / endpoint                                                      |
+| `LLM_TIMEOUT_MS`, `LLM_MAX_OUTPUT_TOKENS`                                          | Per-call budget and output cap                                                     |
+| `LLM_TEMPERATURE`                                                                  | Leave unset for Gemini 3 models                                                    |
+| `APAYEE_BASE_URL`                                                                  | Where Apayee is (default `http://127.0.0.1:4100`)                                  |
+| `APAYEE_TOKEN`                                                                     | Bearer token; required for a non-local Apayee                                      |
+| `APAYEE_QUEUE_WAIT_MS`                                                             | Extra time allowed for waiting in Apayee's queue                                   |
+| `PUBLIC_MODE`                                                                      | `true` requires a Cloudflare Access owner token on every route (off by default)    |
+| `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`                                                 | Cloudflare Access team domain and audience tag (required in public mode)           |
+| `OWNER_EMAILS`, `ALLOWED_ORIGINS`                                                  | Owner accounts, and exact origins of the public frontend (required in public mode) |
+| `TRUSTED_PROXY_PEERS`                                                              | Peers whose `CF-Connecting-IP` is believed, for logs only                          |
+| `UPLOAD_*`, `ZIP_*`, `PDF_MAX_PAGES`                                               | Upload, archive and PDF limits (always on; stricter in public mode)                |
+| `LLM_MAX_CONCURRENT`, `RATE_LIMIT_PER_MINUTE`, `REQUEST_DEADLINE_MS`               | Owner-mode model gate: concurrency, rate, deadline (there is no request budget)    |
+| `PUBLIC_DEMO`, `TICKET_SECRET`, `TURNSTILE_*`, `JOB_*`, `UPLOAD_INFLIGHT_MAX`, ... | Public demo: Turnstile tickets and the async job API (`docs/PUBLIC_DEMO_JOBS.md`)  |
 
 Opt-in test switches (read only by those tests): `QATOOL_LIVE_LLM=1`, `QATOOL_APAYEE_SMOKE=1`,
 `APAYEE_DIR` (location of the Apayee project, default `../Apayee`).
@@ -209,6 +237,11 @@ npm run build
 NODE_ENV=production npm start               # PowerShell: $env:NODE_ENV='production'; npm start
 ```
 
+**Docker (optional, local).** `docker compose up -d --build` runs the UI, the API and Apayee as three
+containers on Docker Desktop; the host workflow above is unchanged and the two cannot run at the same
+time (same ports). Setup, the one-time Claude sign-in inside the container, and troubleshooting are in
+[`docs/DOCKER_LOCAL.md`](docs/DOCKER_LOCAL.md).
+
 Under `npm run dev`, React StrictMode runs each UI processing phase twice, so a development run makes
 two model calls per stage. A production build makes one.
 
@@ -235,8 +268,9 @@ two model calls per stage. A production build makes one.
   storage, no obligation engine, red highlighting for rows needing review) in
   [`docs/QAI_Blueprint_v4_P0_Refinement.md`](docs/QAI_Blueprint_v4_P0_Refinement.md).
 - **Known limitations:** Gemini free-tier quota; large documents truncate at 400 blocks / 120,000
-  characters; no authentication and plain HTTP on localhost only (local single-user use); `server/lib/trace.js`
-  exists but is not wired in; no ESLint. Full list: [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) section 19.
+  characters; no authentication and plain HTTP locally (single-user; `PUBLIC_MODE` adds Cloudflare Access
+  authentication for a tunnelled demo, TLS comes from the tunnel); no ESLint. Full list:
+  [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) section 19.
 - **Open work:** extraction prompt efficiency (audit done, nothing applied), live validation that the
   model follows the generation granularity rules, run-level tracing.
 - **Data handling:** documents are parsed in memory and discarded; prompts and replies are not logged;

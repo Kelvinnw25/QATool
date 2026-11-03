@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { loadSecuritySettings } from './security/settings.js';
+
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 
 export const rootDir = path.resolve(serverDir, '..');
@@ -19,6 +21,8 @@ function intFromEnv(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+const maxBodyBytes = intFromEnv(process.env.MAX_BODY_BYTES, 25 * 1024 * 1024);
+
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
   host: process.env.HOST ?? '127.0.0.1',
@@ -36,9 +40,16 @@ export const config = {
    * parsed from this buffer in memory and never written to disk, so this is
    * also the effective memory ceiling per request.
    */
-  maxBodyBytes: intFromEnv(process.env.MAX_BODY_BYTES, 25 * 1024 * 1024),
+  maxBodyBytes,
 
   logLevel: process.env.LOG_LEVEL ?? 'info',
+
+  /**
+   * Public mode, the Cloudflare Access identity, the origin allowlist and every
+   * resource limit (server/security/). PUBLIC_MODE is off unless set, so the
+   * local workflow is unchanged. Checked by assertSecuritySettings() at startup.
+   */
+  security: loadSecuritySettings(process.env, { maxBodyBytes }),
 
   /**
    * LLM provider settings (PRD 5/20).

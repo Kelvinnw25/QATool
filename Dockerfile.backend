@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1
+#
+# QATOOL API (Fastify) for local development. See docs/DOCKER_LOCAL.md.
+#
+# Nothing in this image is a secret: no .env, no API key, no Apayee token. Settings arrive as
+# environment variables when the container starts (compose.yaml, env_file).
+
+ARG NODE_VERSION=22.15.0
+FROM node:${NODE_VERSION}-bookworm-slim
+
+WORKDIR /app
+RUN chown node:node /app
+USER node
+
+# Production dependencies from the lockfile only; npm ci never edits it. web/package.json is
+# needed because the lockfile lists the web workspace and npm ci checks them against each other.
+COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node web/package.json ./web/package.json
+RUN npm ci --omit=dev --workspaces=false && npm cache clean --force
+
+COPY --chown=node:node server ./server
+COPY --chown=node:node templates/sit-script-template.xlsx ./templates/sit-script-template.xlsx
+
+# 0.0.0.0 so the published port and the other containers can reach it. The compose file also
+# sets these; they are repeated so `docker run` of this image alone behaves the same.
+ENV HOST=0.0.0.0 \
+    PORT=3001
+EXPOSE 3001
+
+# /healthz is liveness only: no credentials (it is the one route that needs none in public
+# mode), nothing about the system in the reply, and no call to Apayee or any model. /api/health
+# would return 401 in public mode and mark the container unhealthy.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:3001/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+
+# node reads no .env here (none is in the image); the environment is the configuration.
+CMD ["node", "server/index.js"]

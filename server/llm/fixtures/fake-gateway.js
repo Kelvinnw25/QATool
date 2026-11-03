@@ -17,7 +17,12 @@ import http from 'node:http';
 const sleepForever = () => new Promise(() => {});
 
 /** The reply Apayee documents for GET /v1/health. */
-export function healthReply({ provider = 'claude', status = 'ok', service = 'apayee' } = {}) {
+export function healthReply({
+  provider = 'claude',
+  status = 'ok',
+  service = 'apayee',
+  queue,
+} = {}) {
   return {
     status: 200,
     body: {
@@ -25,7 +30,8 @@ export function healthReply({ provider = 'claude', status = 'ok', service = 'apa
       service,
       version: '0.1.0',
       provider,
-      queue: { length: 0, running: false, capacity: 16, abandoned: 0, totals: {} },
+      // `queue` replaces the whole block, e.g. to add max_active or to leave it out.
+      queue: queue ?? { length: 0, running: false, capacity: 16, abandoned: 0, totals: {} },
     },
   };
 }

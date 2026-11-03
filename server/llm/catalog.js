@@ -206,14 +206,27 @@ export function createProviderAvailability({
     return check(current);
   }
 
-  /** @param {'gemini' | 'claude'} id */
-  async function statusOf(id, { fresh = false } = {}) {
+  /**
+   * The status of a choice, and for the gateway-backed one the capacity it reported.
+   * The capacity is read from the same health answer as the status, so the two cannot
+   * disagree.
+   *
+   * @param {'gemini' | 'claude'} id
+   */
+  async function inspect(id, { fresh = false } = {}) {
     const current = settings();
 
-    if (id === 'gemini') return geminiStatus(current);
+    if (id === 'gemini') return { status: geminiStatus(current), capacity: null };
 
     const outcome = await gatewayOutcome(current, { fresh });
-    return claudeStatus(outcome, PROVIDER_CHOICES.claude.gatewayProvider);
+    return {
+      status: claudeStatus(outcome, PROVIDER_CHOICES.claude.gatewayProvider),
+      capacity: outcome.state === 'ready' ? (outcome.queue ?? null) : null,
+    };
+  }
+
+  async function statusOf(id, options) {
+    return (await inspect(id, options)).status;
   }
 
   return {
@@ -251,10 +264,13 @@ export function createProviderAvailability({
      * different provider a moment ago must not receive it.
      *
      * @param {'gemini' | 'claude'} id a value parseProviderChoice returned
+     * @param {{ onCapacity?: (capacity: object | null) => void }} [options]  told what the
+     *   gateway reported about its capacity in the very answer this acquisition rests on
      * @throws {ProviderUnavailableError}
      */
-    async acquire(id) {
-      const status = await statusOf(id, { fresh: true });
+    async acquire(id, { onCapacity } = {}) {
+      const { status, capacity } = await inspect(id, { fresh: true });
+      onCapacity?.(capacity);
       if (!status.available) throw new ProviderUnavailableError(id, status);
 
       const choice = PROVIDER_CHOICES[id];
@@ -264,6 +280,18 @@ export function createProviderAvailability({
         // The adapter refuses a reply from any other provider than this one.
         ...(choice.gatewayProvider ? { expectGatewayProvider: choice.gatewayProvider } : {}),
       });
+    },
+
+    /**
+     * Whether a choice can take work now, and how much the gateway can run at once, from
+     * the same short-lived health answer the picker uses (no new request while it is fresh).
+     * Used to decide whether to admit a job; it spends nothing.
+     *
+     * @param {'gemini' | 'claude'} id
+     * @returns {Promise<{ status: object, capacity: object | null }>}
+     */
+    async capacity(id) {
+      return inspect(id, { fresh: false });
     },
 
     /** Forgets the gateway's last answer. For tests; nothing in the app calls it. */

@@ -4,6 +4,10 @@ import { ModelSelector } from '../components/ModelSelector.jsx';
 import { effectiveChoice, labelFor, startBlocker } from '../providers.js';
 import { useProviders } from '../useProviders.js';
 import { useCanonical } from '../state/canonical.jsx';
+import { useConfig } from '../state/appConfig.js';
+import { useSession } from '../session/SessionProvider.jsx';
+import { checkUploadLimits } from '../jobs/limits.js';
+import { userMessage } from '../jobs/failure.js';
 
 const ACCEPT = '.pdf,.docx,.xlsx';
 
@@ -22,13 +26,17 @@ export function UploadStage({
   onModelChoice,
 }) {
   const { canonical, run, actions } = useCanonical();
-  const { status, list } = useProviders();
+  const { demo } = useConfig();
+  const session = useSession();
+  // The public demo has no model to choose: the server fixes it, so nothing is asked about it.
+  const { status, list } = useProviders({ enabled: !demo });
 
   // A run still going, started from this page earlier: its model is fixed, so
   // the picker is locked and a second run cannot be started beside it.
   const runInProgress = run?.active === true;
-  const choice = effectiveChoice(list, modelChoice);
-  const blocker = startBlocker({ status, list, choice });
+  const choice = demo ? null : effectiveChoice(list, modelChoice);
+  const blocker = demo ? null : startBlocker({ status, list, choice });
+  const limitProblems = demo ? checkUploadLimits(files, session.limits) : [];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
@@ -53,7 +61,7 @@ export function UploadStage({
       setError(null);
       onAdvance('results');
     } catch (cause) {
-      setError(cause.message);
+      setError(userMessage(cause, { demo }));
     } finally {
       setLoading(false);
     }
@@ -76,13 +84,17 @@ export function UploadStage({
         </label>
       </div>
 
-      <ModelSelector
-        status={status}
-        list={list}
-        choice={choice}
-        onChange={onModelChoice}
-        locked={runInProgress}
-      />
+      {demo ? (
+        <DemoNotice />
+      ) : (
+        <ModelSelector
+          status={status}
+          list={list}
+          choice={choice}
+          onChange={onModelChoice}
+          locked={runInProgress}
+        />
+      )}
 
       <div className="card">
         <h2>Source documents</h2>
@@ -143,11 +155,30 @@ export function UploadStage({
           </table>
         )}
 
+        {limitProblems.length > 0 && (
+          <div className="notice error" style={{ marginTop: 12 }}>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {limitProblems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="row" style={{ marginTop: 12 }}>
           <button
             type="button"
-            disabled={files.length === 0 || !hasName || blocker !== null || runInProgress}
-            onClick={() => onStartRun({ provider: choice, label: labelFor(list, choice) })}
+            disabled={
+              files.length === 0 ||
+              !hasName ||
+              blocker !== null ||
+              runInProgress ||
+              !session.ready ||
+              limitProblems.length > 0
+            }
+            onClick={() =>
+              onStartRun({ provider: choice, label: demo ? 'AI' : labelFor(list, choice) })
+            }
           >
             Process {files.length > 0 ? `${files.length} document(s)` : 'documents'}
           </button>
@@ -155,6 +186,9 @@ export function UploadStage({
             <span className="muted">Give the project a name first.</span>
           )}
           {blocker && files.length > 0 && hasName && <span className="muted">{blocker}</span>}
+          {!session.ready && files.length > 0 && hasName && (
+            <span className="muted">Verify your session above first.</span>
+          )}
           {runInProgress && (
             <span className="muted">A run is still in progress; wait for it to finish.</span>
           )}
@@ -167,10 +201,42 @@ export function UploadStage({
           Load a fixed sample workflow to see the Results page and download a real SIT Script from
           the office template. It uses canned content and makes no LLM call.
         </p>
-        <button type="button" className="secondary" onClick={loadSample} disabled={loading}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={loadSample}
+          disabled={loading || (demo && (!session.ready || runInProgress))}
+        >
           {loading ? 'Loading...' : 'Load sample workflow'}
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * Said before anything is uploaded. Every line matches what the backend does (docs/PUBLIC_DEMO_JOBS.md):
+ * documents are read on the server, their text goes to the AI service the server is set up with,
+ * jobs and results sit in the server's memory for a short time, and there is no database.
+ */
+function DemoNotice() {
+  return (
+    <div className="card">
+      <h2>Before you upload</h2>
+      <ul className="checklist" style={{ marginTop: 0 }}>
+        <li>Your documents are sent to the QATOOL demo server, which reads them.</li>
+        <li>
+          Text taken from them is sent to the AI service the server is configured to use, to draft
+          requirements and test cases. Do not upload anything confidential.
+        </li>
+        <li>
+          Jobs and results are kept in the server&rsquo;s memory for a short time (minutes) and are
+          lost if it restarts.
+        </li>
+        <li>
+          QATOOL has no database: nothing is stored permanently, and nothing can be recovered later.
+        </li>
+      </ul>
+    </div>
   );
 }

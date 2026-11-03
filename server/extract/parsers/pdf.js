@@ -1,3 +1,4 @@
+import { config } from '../../config.js';
 import { AppError } from '../../lib/errors.js';
 
 /**
@@ -209,7 +210,7 @@ function multiply(base, next) {
   ];
 }
 
-export async function parsePdf(buffer, documentId) {
+export async function parsePdf(buffer, documentId, limits = config.security.limits) {
   const pdfjs = await loadPdfjs();
 
   let loadingTask;
@@ -242,6 +243,19 @@ export async function parsePdf(buffer, documentId) {
   // are being read (see the paragraph loop); cleared by the next heading.
   let unnamedScenario = false;
   const pageCount = document.numPages;
+
+  // Refused before the first page is read: extraction cost grows with pages, and
+  // the size of the file says little about how many it holds. The loading task is
+  // released here because the try below, which normally does it, is not reached.
+  const maxPages = limits.pdfMaxPages;
+  if (pageCount > maxPages) {
+    await loadingTask.destroy();
+    throw new AppError(
+      'PDF_TOO_MANY_PAGES',
+      `The PDF has more than the ${maxPages} pages allowed.`,
+      422
+    );
+  }
 
   try {
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {

@@ -56,28 +56,52 @@ export function requestCancelled() {
 }
 
 /**
- * Runs the work with a signal that aborts if the client disconnects.
+ * The error a request ends with when it ran past its deadline.
+ *
+ * The deadline exists so that the backend answers before a proxy in front of it
+ * gives up (Cloudflare's read timeout), instead of carrying on with a paid model
+ * call nobody is waiting for.
+ */
+export function requestDeadlineExceeded() {
+  return new AppError(
+    'REQUEST_DEADLINE_EXCEEDED',
+    'The request took too long and was stopped. Nothing was kept on the server; retry.',
+    504
+  );
+}
+
+/**
+ * Runs the work with a signal that aborts if the client disconnects, and, when
+ * `deadlineMs` is given, once that much time has passed.
  *
  * Whatever the work throws once the signal has fired is reported as one
- * cancellation, however the stage underneath chose to describe it: Gemini calls
- * an aborted fetch "unavailable", Apayee calls it "cancelled". The listener is
- * removed on every path.
+ * cancellation (or one deadline), however the stage underneath chose to describe
+ * it: Gemini calls an aborted fetch "unavailable", Apayee calls it "cancelled".
+ * The listener and the timer are removed on every path.
  *
  * @template T
  * @param {import('fastify').FastifyRequest} request
  * @param {import('fastify').FastifyReply} reply
  * @param {(signal: AbortSignal) => Promise<T>} work
+ * @param {{ deadlineMs?: number }} [options]  0 or absent means no deadline
  * @returns {Promise<T>}
  */
-export async function withClientCancellation(request, reply, work) {
-  const { signal, release } = watchClientDisconnect(request, reply);
+export async function withClientCancellation(request, reply, work, { deadlineMs = 0 } = {}) {
+  const { signal: clientSignal, release } = watchClientDisconnect(request, reply);
+
+  const deadline = new AbortController();
+  const timer = deadlineMs > 0 ? setTimeout(() => deadline.abort(), deadlineMs) : null;
+  const signal = timer ? AbortSignal.any([clientSignal, deadline.signal]) : clientSignal;
 
   try {
     return await work(signal);
   } catch (error) {
-    if (signal.aborted) throw requestCancelled();
+    // A client that left outranks a deadline that fired at the same moment.
+    if (clientSignal.aborted) throw requestCancelled();
+    if (deadline.signal.aborted) throw requestDeadlineExceeded();
     throw error;
   } finally {
+    clearTimeout(timer);
     release();
   }
 }

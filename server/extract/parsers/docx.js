@@ -1,5 +1,7 @@
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8 } from 'fflate';
 import { AppError } from '../../lib/errors.js';
+import { config } from '../../config.js';
+import { safeUnzip } from '../zip.js';
 
 /**
  * DOCX text and table extraction, straight from WordprocessingML.
@@ -16,17 +18,27 @@ import { AppError } from '../../lib/errors.js';
 
 const HEADING_STYLE = /^heading\s*([1-9])$/i;
 
-export function parseDocx(buffer, documentId) {
+export function parseDocx(buffer, documentId, limits = config.security.limits) {
   let parts;
   try {
-    parts = unzipSync(new Uint8Array(buffer));
+    parts = safeUnzip(new Uint8Array(buffer), limits);
   } catch (cause) {
+    if (cause instanceof AppError) throw cause;
     throw new AppError('CORRUPT_DOCUMENT', `The DOCX could not be opened: ${cause.message}`, 422);
   }
 
   const documentPart = parts['word/document.xml'];
   if (!documentPart) {
     throw new AppError('CORRUPT_DOCUMENT', 'The DOCX has no word/document.xml part.', 422);
+  }
+
+  // The walk below is regular expressions over this text, so its size is what bounds it.
+  if (documentPart.length > limits.xmlPartMaxBytes) {
+    throw new AppError(
+      'DOCUMENT_TOO_COMPLEX',
+      'The DOCX holds more content than this service can process.',
+      422
+    );
   }
 
   const xml = strFromU8(documentPart);

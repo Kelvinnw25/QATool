@@ -1,20 +1,18 @@
-import {
-  buildCoverage,
-  canonicalProjectSchema,
-  checkCanonicalReferences,
-} from '../schema/canonical.js';
 import { projectSchema } from '../schema/project.js';
-import { collectIssues, parseOrThrow } from '../lib/validate.js';
+import { parseOrThrow } from '../lib/validate.js';
 import { AppError } from '../lib/errors.js';
 import { exportFilename, exportSitScript } from '../export/sit-script-export.js';
 import { extractDocuments } from '../extract/index.js';
 import { generateFromRequirements } from '../generate/index.js';
 import { reviewSemantics } from '../semantic/index.js';
-import { diagnoseTestCases, skippedDiagnostics } from '../semantic/testcase-diagnostics.js';
 import { config } from '../config.js';
 import { parseProviderChoice, providerAvailability } from '../llm/catalog.js';
 import { withClientCancellation } from '../lib/cancellation.js';
-import { setStage, trace } from '../lib/trace.js';
+import { trace } from '../lib/trace.js';
+import { requireCanonical } from '../pipeline/canonical-input.js';
+import { buildValidationReport, deterministicChecks } from '../pipeline/validation.js';
+import { assertProviderAccess } from '../security/provider-policy.js';
+import { readUploads } from '../security/uploads.js';
 
 /**
  * The stateless pipeline.
@@ -35,6 +33,12 @@ import { setStage, trace } from '../lib/trace.js';
  * request; nothing falls back to anything else. See chooseProvider().
  */
 export default async function pipelineRoutes(fastify) {
+  // In the public demo every model call goes through the job manager (server/jobs/), whose
+  // workers and queue are the only concurrency control. A direct route would bypass them, so
+  // the two routes that always call a model are not registered there, and the validate route
+  // refuses its semantic review (below). Deterministic validation and export stay.
+  const demo = fastify.security?.demoMode === true;
+
   /**
    * Parses uploaded PDF/DOCX/XLSX into structured requirements.
    *
@@ -42,69 +46,62 @@ export default async function pipelineRoutes(fastify) {
    * deliberately no call to saveRequestFiles(), and no upload directory in the
    * config for one to write to. The buffers are released when the request ends.
    */
-  fastify.post('/api/extract', async (request, reply) => {
-    if (!request.isMultipart()) {
-      throw new AppError('BAD_REQUEST', 'Documents must be uploaded as multipart/form-data.', 400);
-    }
-
-    // Before any document is read: structuring absorbs a provider failure and
-    // carries on with deterministic extraction, so a chosen provider that is not
-    // there has to be refused here or the run would quietly become a different one.
-    const provider = await chooseProvider(request);
-
-    const files = [];
-
-    try {
-      for await (const part of request.files()) {
-        files.push({
-          filename: part.filename,
-          mimetype: part.mimetype,
-          buffer: await part.toBuffer(),
-        });
-      }
-    } catch (cause) {
-      if (cause.code === 'FST_REQ_FILE_TOO_LARGE') {
+  if (!demo) {
+    fastify.post('/api/extract', { config: { model: 'always' } }, async (request, reply) => {
+      if (!request.isMultipart()) {
         throw new AppError(
-          'FILE_TOO_LARGE',
-          `A document exceeds the ${Math.floor(config.maxBodyBytes / (1024 * 1024))} MB limit.`,
-          413
+          'BAD_REQUEST',
+          'Documents must be uploaded as multipart/form-data.',
+          400
         );
       }
-      if (cause.code === 'FST_FILES_LIMIT') {
-        throw new AppError('TOO_MANY_FILES', 'Too many documents in one upload.', 413);
+
+      // Before any document is read: structuring absorbs a provider failure and
+      // carries on with deterministic extraction, so a chosen provider that is not
+      // there has to be refused here or the run would quietly become a different one.
+      const provider = await chooseProvider(request);
+
+      // File count, per-file size and TOTAL size are enforced as the bytes arrive
+      // (security/uploads.js). When one is crossed the connection is closed after
+      // the reply, so the rest of an oversized upload is not read for nothing.
+      let files;
+      try {
+        files = await readUploads(request, fastify.security?.limits ?? config.security.limits);
+      } catch (error) {
+        reply.header('Connection', 'close');
+        throw error;
       }
-      throw new AppError('UPLOAD_FAILED', 'The upload could not be read.', 400);
-    }
 
-    // The structuring call is the only part that waits on a model, so it is the
-    // only part a disconnect can usefully stop.
-    return withClientCancellation(request, reply, (signal) =>
-      extractDocuments(files, { provider, signal })
-    );
-  });
+      // The structuring call is the only part that waits on a model, so it is the
+      // only part a disconnect can usefully stop.
+      return runModelWork(fastify, request, reply, (signal) =>
+        extractDocuments(files, { provider, signal })
+      );
+    });
 
-  /**
-   * Generates test cases and project-level content from extracted requirements.
-   *
-   * The input is the structured requirements, never raw document text: by this
-   * point the uploaded buffers are long gone, and what the generator may work
-   * from is exactly what extraction produced (PRD 10).
-   *
-   * Stateless like the rest of the pipeline - the canonical object is posted
-   * in, the outputs are posted back, and a failure here leaves the browser's
-   * copy of the requirements untouched so retry costs one call.
-   */
-  fastify.post('/api/generate', async (request, reply) => {
-    const canonical = requireCanonical(request.body);
-    const provider = await chooseProvider(request);
-    return withClientCancellation(request, reply, (signal) =>
-      generateFromRequirements(canonical, {
-        testPoints: request.body?.test_points,
-        provider,
-        signal,
-      })
-    );
-  });
+    /**
+     * Generates test cases and project-level content from extracted requirements.
+     *
+     * The input is the structured requirements, never raw document text: by this
+     * point the uploaded buffers are long gone, and what the generator may work
+     * from is exactly what extraction produced (PRD 10).
+     *
+     * Stateless like the rest of the pipeline - the canonical object is posted
+     * in, the outputs are posted back, and a failure here leaves the browser's
+     * copy of the requirements untouched so retry costs one call.
+     */
+    fastify.post('/api/generate', { config: { model: 'always' } }, async (request, reply) => {
+      const canonical = requireCanonical(request.body);
+      const provider = await chooseProvider(request);
+      return runModelWork(fastify, request, reply, (signal) =>
+        generateFromRequirements(canonical, {
+          testPoints: request.body?.test_points,
+          provider,
+          signal,
+        })
+      );
+    });
+  }
 
   /**
    * Validation over the canonical object (PRD 15/16), in two tiers.
@@ -120,67 +117,45 @@ export default async function pipelineRoutes(fastify) {
    * reported in `semantic.llm`, with the deterministic findings still returned,
    * so the review can be retried on its own without regenerating anything.
    */
-  fastify.post('/api/validate', async (request, reply) => {
+  fastify.post('/api/validate', { config: { model: 'semantic' } }, async (request, reply) => {
     const canonical = requireCanonical(request.body);
 
     // Checked even when no review is asked for, so a typo is a 400 everywhere;
     // but a model is only needed, and so only probed, for the semantic review.
     const useLlm = ['true', '1'].includes(String(request.query?.semantic ?? '').toLowerCase());
+
+    // The semantic review is a model call, and in the demo it belongs to a job. Refused
+    // before a provider is chosen, so nothing is probed on its behalf.
+    if (demo && useLlm) {
+      throw new AppError(
+        'USE_JOBS',
+        'The semantic review runs as a job. Submit it with POST /api/jobs.',
+        400
+      );
+    }
+
     const provider = await chooseProvider(request, { needsModel: useLlm });
 
-    setStage('VALIDATE');
-    trace('validation_started', {
-      requirement_count: canonical.requirements?.length ?? 0,
-      testcase_count: canonical.test_cases?.length ?? 0,
-    });
+    const checks = deterministicChecks(canonical);
 
-    const schemaIssues = collectIssues(canonicalProjectSchema, canonical);
-    const referenceIssues = schemaIssues.length === 0 ? checkCanonicalReferences(canonical) : [];
-    const valid = schemaIssues.length === 0 && referenceIssues.length === 0;
-
-    trace('traceability_completed', {
-      valid,
-      schema_issue_count: schemaIssues.length,
-      reference_issue_count: referenceIssues.length,
-    });
-
-    const semantic = await withClientCancellation(request, reply, (signal) =>
-      reviewSemantics(canonical, {
-        useLlm,
-        structurallyValid: valid,
-        testPoints: request.body?.test_points,
-        provider,
-        signal,
-      })
+    // Without ?semantic=true no model is involved, so the gate's concurrency
+    // ceiling does not apply; the deadline and disconnect handling still do.
+    const semantic = await runModelWork(
+      fastify,
+      request,
+      reply,
+      (signal) =>
+        reviewSemantics(canonical, {
+          useLlm,
+          structurallyValid: checks.valid,
+          testPoints: request.body?.test_points,
+          provider,
+          signal,
+        }),
+      { usesModel: useLlm }
     );
 
-    const coverage = valid ? buildCoverage(canonical) : emptyCoverage();
-
-    // Diagnostics about the shape of each drafted case - non-atomic, vague,
-    // intermediate-only. Advisory and separate: computed after everything above
-    // and read from nothing above, so they cannot move a coverage figure, a
-    // semantic warning or the workbook. Same structural gate as semantic checks.
-    const testcaseDiagnostics = valid
-      ? diagnoseTestCases(canonical)
-      : skippedDiagnostics('Test case diagnostics run only on a structurally valid project.');
-
-    trace('result_ready', {
-      valid,
-      semantic_warning_count: semantic.issues.length,
-      requirements_covered: coverage.summary.requirement_covered,
-      obligations_covered: coverage.summary.obligations_covered,
-      obligations_total: coverage.summary.obligations_total,
-    });
-
-    return {
-      valid,
-      schema_issues: schemaIssues,
-      reference_issues: referenceIssues,
-      semantic_warnings: semantic.issues,
-      semantic: semantic.status,
-      coverage,
-      testcase_diagnostics: testcaseDiagnostics,
-    };
+    return buildValidationReport(canonical, checks, semantic);
   });
 
   /**
@@ -242,53 +217,22 @@ async function chooseProvider(request, { needsModel = true } = {}) {
   const choice = parseProviderChoice(request.query?.provider);
   if (choice === null || !needsModel) return undefined;
 
+  // Defence in depth, before the gateway is asked anything: an explicit model
+  // choice from anyone but the verified owner is refused (security/provider-policy.js).
+  assertProviderAccess(request);
+
   const provider = await providerAvailability.acquire(choice);
   trace('provider_selected', { provider_choice: choice });
   return provider;
 }
 
 /**
- * Coverage of a structurally invalid project cannot be trusted - a malformed
- * test case might not have a requirement_ids array to read - so it is reported
- * as empty rather than computed from bad data.
+ * Runs model work under the app's gate: client-disconnect cancellation, the
+ * request deadline and the concurrency ceiling (security/gate.js). An instance
+ * built without a gate keeps the original disconnect-only behaviour.
  */
-function emptyCoverage() {
-  return {
-    entries: [],
-    uncovered: [],
-    orphan_test_cases: [],
-    obligations: [],
-    summary: {
-      requirement_total: 0,
-      requirement_covered: 0,
-      requirement_partially_covered: 0,
-      requirement_fully_covered: 0,
-      obligations_total: 0,
-      obligations_covered: 0,
-      obligations_uncovered: 0,
-      testcases_unresolved_classification: 0,
-    },
-  };
-}
-
-/**
- * Every pipeline endpoint takes the same envelope. Checking its shape here
- * keeps the error identical across endpoints instead of each one failing in its
- * own way on a malformed body.
- */
-function requireCanonical(body) {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw new AppError(
-      'BAD_REQUEST',
-      'Expected a canonical project object in the request body.',
-      400
-    );
-  }
-
-  return {
-    project: body.project ?? {},
-    documents: Array.isArray(body.documents) ? body.documents : [],
-    requirements: Array.isArray(body.requirements) ? body.requirements : [],
-    test_cases: Array.isArray(body.test_cases) ? body.test_cases : [],
-  };
+function runModelWork(fastify, request, reply, work, options) {
+  return fastify.modelGate
+    ? fastify.modelGate.run(request, reply, work, options)
+    : withClientCancellation(request, reply, work);
 }

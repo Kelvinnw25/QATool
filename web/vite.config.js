@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Read by this config only, never by browser code (no VITE_ prefix). Docker Compose sets it to the
+// backend's service name; on the host it stays the loopback default.
+const apiTarget = process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:3001';
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -9,7 +13,7 @@ export default defineConfig({
     // only ever talks to our own backend, never to an LLM provider.
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3001',
+        target: apiTarget,
         changeOrigin: false,
       },
     },

@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, downloadBlob } from '../api.js';
 import { OutputCard } from '../components/OutputCard.jsx';
 import { CopyButton } from '../components/CopyButton.jsx';
+import { JobProgress } from '../components/JobProgress.jsx';
 import { Traceability } from '../components/Traceability.jsx';
+import { describeFailure, userMessage } from '../jobs/failure.js';
+import { createJobHandle, runJobPipeline, sharedBoot } from '../jobs/run.js';
+import { useConfig } from '../state/appConfig.js';
 import { indexDocuments, indexRequirements, useCanonical } from '../state/canonical.jsx';
 
 /**
@@ -42,12 +46,18 @@ const NEEDS_QA_REVIEW = new Set([
  */
 export function ResultsStage({ onDownloaded, detailed = false }) {
   const { canonical, validation, generation, run, actions } = useCanonical();
+  const { demo } = useConfig();
   const [error, setError] = useState(null);
   const [details, setDetails] = useState([]);
   const [busy, setBusy] = useState(false);
   const [tracing, setTracing] = useState(null);
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState(null);
+  // Public demo: the review runs as a backend job, so it has a queue position and can be cancelled.
+  const [reviewJob, setReviewJob] = useState(null);
+  const [reviewCancelling, setReviewCancelling] = useState(false);
+  const reviewHandle = useRef(null);
+  const reviewToken = useRef(0);
 
   const { project, test_cases: testCases } = canonical;
   const requirements = indexRequirements(canonical.requirements);
@@ -75,6 +85,12 @@ export function ResultsStage({ onDownloaded, detailed = false }) {
   async function runSemanticReview() {
     setReviewing(true);
     setReviewError(null);
+
+    if (demo) {
+      await runDemoReview();
+      return;
+    }
+
     try {
       // The model the run was started with, not whatever is selected now.
       actions.setValidation(
@@ -87,6 +103,54 @@ export function ResultsStage({ onDownloaded, detailed = false }) {
     }
   }
 
+  /**
+   * The demo's review: a job from the validate phase, so it waits its turn like everyone else's and
+   * no browser request ever reaches a model directly. Polling, retries and failure wording are the
+   * job runner's.
+   */
+  async function runDemoReview() {
+    reviewToken.current += 1;
+    const token = reviewToken.current;
+    const handle = createJobHandle(api);
+    reviewHandle.current = handle;
+    setReviewJob(null);
+    setReviewCancelling(false);
+
+    try {
+      await runJobPipeline({
+        from: 'validate',
+        canonical,
+        testPoints: [],
+        isCurrent: () => reviewToken.current === token,
+        api,
+        handle,
+        boot: sharedBoot,
+        on: {
+          accepted: (accepted) => setReviewJob(accepted),
+          progress: (view) => setReviewJob(view),
+          validated: (validation) => actions.setValidation(validation),
+          cancelled: () => setReviewError('The review was cancelled. Nothing was changed.'),
+          failed: (phase, cause) => setReviewError(describeFailure(cause).message),
+        },
+      });
+    } finally {
+      if (reviewToken.current === token) {
+        setReviewing(false);
+        setReviewJob(null);
+      }
+    }
+  }
+
+  async function cancelReview() {
+    setReviewCancelling(true);
+    try {
+      await reviewHandle.current?.cancel();
+    } catch (cause) {
+      setReviewCancelling(false);
+      setReviewError(userMessage(cause, { demo }));
+    }
+  }
+
   async function handleExport() {
     setBusy(true);
     setError(null);
@@ -96,7 +160,7 @@ export function ResultsStage({ onDownloaded, detailed = false }) {
       downloadBlob(blob, filename);
       onDownloaded({ filename, rowCount });
     } catch (cause) {
-      setError(cause.message);
+      setError(userMessage(cause, { demo }));
       setDetails(Array.isArray(cause.details) ? cause.details : []);
     } finally {
       setBusy(false);
@@ -196,9 +260,8 @@ export function ResultsStage({ onDownloaded, detailed = false }) {
 
         {generation?.metadata && (
           <p className="muted" style={{ marginTop: 12, marginBottom: 0, fontSize: 13 }}>
-            Drafted by {generation.metadata.provider} ({generation.metadata.model}) from{' '}
-            {generation.metadata.requirement_count} requirements in{' '}
-            {(generation.metadata.duration_ms / 1000).toFixed(1)}s
+            Drafted by {madeBy(generation.metadata)} from {generation.metadata.requirement_count}{' '}
+            requirements in {(generation.metadata.duration_ms / 1000).toFixed(1)}s
             {generation.metadata.duplicates_removed > 0 &&
               `, ${generation.metadata.duplicates_removed} duplicate(s) removed`}
             . Review before use.
@@ -233,6 +296,9 @@ export function ResultsStage({ onDownloaded, detailed = false }) {
           busy={reviewing}
           error={reviewError}
           onRun={runSemanticReview}
+          job={reviewJob}
+          cancelling={reviewCancelling}
+          onCancel={cancelReview}
         />
       )}
 
@@ -569,7 +635,16 @@ function detectedBy(sources = []) {
  * a failed AI review is not a clean bill of health, and the page must not let
  * it read like one.
  */
-function SemanticReview({ issues, status, busy, error, onRun }) {
+function SemanticReview({
+  issues,
+  status,
+  busy,
+  error,
+  onRun,
+  job = null,
+  cancelling = false,
+  onCancel,
+}) {
   const llm = status?.llm ?? 'not_requested';
 
   return (
@@ -589,7 +664,7 @@ function SemanticReview({ issues, status, busy, error, onRun }) {
 
       {llm === 'completed' && (
         <p className="semantic-meta">
-          Checked by rules and by an AI review ({status.provider}, {status.model}).
+          Checked by rules and by an AI review{madeBy(status, true)}.
           {status.discarded_issues > 0 &&
             ` ${status.discarded_issues} AI finding(s) discarded for citing ids that do not exist.`}
         </p>
@@ -597,9 +672,9 @@ function SemanticReview({ issues, status, busy, error, onRun }) {
 
       {llm === 'failed' && (
         <div className="notice">
-          <strong>The AI review did not run.</strong> {status.error?.message} Only the rule checks
-          below were applied, so an empty list here is not a clean result. Retrying reviews the same
-          test cases; nothing is regenerated.
+          <strong>The AI review did not run.</strong> {failureText(status.error)} Only the rule
+          checks below were applied, so an empty list here is not a clean result. Retrying reviews
+          the same test cases; nothing is regenerated.
         </div>
       )}
 
@@ -607,6 +682,16 @@ function SemanticReview({ issues, status, busy, error, onRun }) {
         <p className="semantic-meta">
           Only the rule checks have run. The AI review has not been run for this workflow.
         </p>
+      )}
+
+      {busy && job && (
+        <JobProgress
+          job={job}
+          fromLabel="the review"
+          cancelling={cancelling}
+          onCancel={onCancel}
+          phaseLabels={{ validate: 'Reviewing the test cases' }}
+        />
       )}
 
       {error && (
@@ -637,4 +722,31 @@ function SemanticReview({ issues, status, busy, error, onRun }) {
       )}
     </div>
   );
+}
+
+/**
+ * Who drafted a result. The local tool reports the provider and model; the public demo's results
+ * carry neither (the backend removes them), so it says only that an AI did.
+ */
+function madeBy(source, parenthesised = false) {
+  const named = source?.provider && source?.model ? `${source.provider}, ${source.model}` : null;
+  if (parenthesised) return named ? ` (${named})` : '';
+  return named ? `${source.provider} (${source.model})` : 'an AI model';
+}
+
+/**
+ * Why the AI review did not run. The local tool's result carries the message; the demo's carries
+ * only a code, so the wording lives here.
+ */
+const REVIEW_FAILURE = {
+  LLM_RATE_LIMITED: 'The AI service is limiting requests. Wait, then retry.',
+  LLM_TIMEOUT: 'The AI service did not answer in time. Retry later.',
+  LLM_UNAVAILABLE: 'The AI service is temporarily unavailable. Retry later.',
+  LLM_MALFORMED_OUTPUT: 'The AI service returned a reply that could not be used.',
+  LLM_TRUNCATED: 'The AI service returned a reply that could not be used.',
+  LLM_REFUSED: 'The AI service declined the request.',
+};
+
+function failureText(error) {
+  return error?.message ?? REVIEW_FAILURE[error?.code] ?? 'The AI service could not be used.';
 }

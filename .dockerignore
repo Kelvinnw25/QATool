@@ -1,0 +1,47 @@
+# Allow-list: only what the QATOOL images need is sent to the build. Everything else, including
+# any file added later, stays out of the build context. Shared by Dockerfile.backend and
+# Dockerfile.frontend.
+*
+!package.json
+!package-lock.json
+!web/package.json
+!web/index.html
+!web/vite.config.js
+!web/src/
+!server/
+!templates/sit-script-template.xlsx
+
+# Tests are not run in the images. server/**/fixtures stay: routes/meta.js imports one at runtime.
+# The exception is the Access-token fixture, which only exists to mint test tokens.
+**/*.test.js
+server/security/fixtures/
+server/jobs/fixtures/
+# The frontend tests' stand-in for the backend (web/src/jobs/fixtures/): never part of the UI.
+web/src/jobs/fixtures/
+
+# Never in an image, even if an allowed directory ever contains them.
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/.git
+**/.gitignore
+**/.claude
+**/.qa-eval-output
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.log
+**/coverage
+**/.cache
+**/.vite
+**/*.tmp
+**/*.temp
+**/*.bak
+**/*.swp
+**/.vscode
+**/.idea
+**/.DS_Store
+**/Thumbs.db
+**/desktop.ini

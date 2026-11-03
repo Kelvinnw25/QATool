@@ -155,16 +155,22 @@ const FOR_APAYEE_CODE = {
       502
     ),
   PROVIDER_NOT_READY: () =>
-    new LlmError(
-      LLM_ERRORS.NOT_CONFIGURED,
-      "Apayee's provider is not ready, for example the Claude CLI is signed out or the provider is disabled. Waiting will not fix this: check the provider status on the Apayee host.",
-      503
+    upstream(
+      'PROVIDER_NOT_READY',
+      new LlmError(
+        LLM_ERRORS.NOT_CONFIGURED,
+        "Apayee's provider is not ready, for example the Claude CLI is signed out or the provider is disabled. Waiting will not fix this: check the provider status on the Apayee host.",
+        503
+      )
     ),
   PROVIDER_RATE_LIMITED: () =>
-    new LlmError(
-      LLM_ERRORS.RATE_LIMITED,
-      "Apayee's provider reported a rate or usage limit. A subscription's session or weekly limit can take hours to reset, so do not retry straight away. Extracted requirements are kept.",
-      429
+    upstream(
+      'PROVIDER_RATE_LIMITED',
+      new LlmError(
+        LLM_ERRORS.RATE_LIMITED,
+        "Apayee's provider reported a rate or usage limit. A subscription's session or weekly limit can take hours to reset, so do not retry straight away. Extracted requirements are kept.",
+        429
+      )
     ),
   PROVIDER_UNAVAILABLE: () => overloaded('Apayee could not complete the request.'),
   SERVICE_SHUTTING_DOWN: () => overloaded('Apayee is shutting down.'),
@@ -179,6 +185,15 @@ const FOR_APAYEE_CODE = {
   REQUEST_TOO_LARGE: () => CONFIG_MISMATCH('REQUEST_TOO_LARGE'),
   UNSUPPORTED_MEDIA_TYPE: () => CONFIG_MISMATCH('UNSUPPORTED_MEDIA_TYPE'),
 };
+
+/**
+ * Remembers which Apayee code an error came from, as a plain property (not part of the
+ * message). The job manager's provider breaker reads it to tell "the provider is down or
+ * out of allowance" from "this one call failed"; nothing is relayed to a caller.
+ */
+function upstream(code, error) {
+  return Object.assign(error, { upstreamCode: code });
+}
 
 function timedOut(reason) {
   return new LlmError(
@@ -233,10 +248,54 @@ export const HEALTH_TIMEOUT_MS = 2_000;
 
 const MAX_HEALTH_BYTES = 64 * 1024;
 
+/** A non-negative whole number, or null. Anything else the gateway sends is not a count. */
+function count(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * What the gateway says about its own capacity, reduced to numbers.
+ *
+ * `maxActive` is how many executions it runs at once. A gateway that does not report it
+ * (an older Apayee) is taken to run ONE, because assuming more would let QATOOL send work
+ * that sits in its queue past the point where a call gives up. A value that is present but
+ * not a positive whole number is `compatible: false`: the contract is not being followed,
+ * and the job manager refuses new work rather than guess. Nothing else the gateway
+ * reports (version, totals) is carried further.
+ */
+export function readQueue(queue) {
+  if (!isRecord(queue)) {
+    return {
+      reported: false,
+      compatible: true,
+      maxActive: 1,
+      active: null,
+      pending: null,
+      capacity: null,
+      running: null,
+    };
+  }
+
+  const hasMax = Object.hasOwn(queue, 'max_active');
+  const maxActive = count(queue.max_active);
+  const running = typeof queue.running === 'boolean' ? queue.running : null;
+  const active = count(queue.active) ?? (running === null ? null : running ? 1 : 0);
+
+  return {
+    reported: hasMax && maxActive !== null && maxActive >= 1,
+    compatible: !hasMax || (maxActive !== null && maxActive >= 1),
+    maxActive: maxActive !== null && maxActive >= 1 ? maxActive : 1,
+    active,
+    pending: count(queue.pending) ?? count(queue.length),
+    capacity: count(queue.capacity),
+    running,
+  };
+}
+
 /**
  * Reads Apayee's documented `GET /v1/health` reply into a state QATOOL can act on.
- * Only the state and the provider's name leave this function: nothing else the
- * gateway reports (version, queue figures) is carried further.
+ * The state, the provider's name and the capacity numbers (readQueue) leave this
+ * function; nothing else the gateway reports is carried further.
  */
 function readHealth(status, text) {
   if (status === 401 || status === 403) return { state: 'unauthorized' };
@@ -254,7 +313,7 @@ function readHealth(status, text) {
   if (body.status !== 'ok') return { state: 'unexpected' };
   if (typeof body.provider !== 'string' || body.provider === '') return { state: 'unexpected' };
 
-  return { state: 'ready', provider: body.provider };
+  return { state: 'ready', provider: body.provider, queue: readQueue(body.queue) };
 }
 
 /**

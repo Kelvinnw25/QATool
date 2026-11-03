@@ -211,7 +211,8 @@
         "symptom": "11 cancelled tests in server/llm/llm.test.js; npm test exits 1 with 0 failures",
         "mechanism": "AbortSignal.timeout timer is unref'd; a probe script showed the process exits with the promise unsettled on both versions",
         "mechanism_confirmed_as_complete_explanation": false,
-        "production_code_affected": false
+        "production_code_affected": false,
+        "status": "resolved 2026-11-03: test-only timer reference in server/llm/llm.test.js; 0 cancelled, exit 0 (see addenda)"
       }
     ],
     "not_tested": [
@@ -239,6 +240,90 @@
     "recorded_node": "22.15.0 (a copy exists under C:\\laragon\\bin\\nodejs\\node-v22.15.0-win-x64)",
     "recorded_npm": "11.6.4 (npm install --global npm@11.6.4; not executed during snapshot)",
     "verify_offline": ["npm run format:check", "npm run build", "npm test"],
-    "expected_on_recorded_versions": "1422 passed, 11 cancelled, 0 failed, exit code 1"
-  }
+    "expected_on_recorded_versions": "1978 tests: 1967 passed, 0 failed, 0 cancelled, 1 skipped, 10 todo, exit code 0",
+    "expected_on_recorded_versions_historical": "1422 passed, 11 cancelled, 0 failed, exit code 1"
+  },
+  "addenda": [
+    {
+      "at": "2026-11-03",
+      "reason": "Backend security hardening (docs/PUBLIC_DEMO_SECURITY.md). Supersedes the baseline above for the items listed; Node.js, npm and Git are unchanged.",
+      "dependencies_added": {
+        "jose": { "declared": "^6.2.15", "locked": "6.2.15" },
+        "@fastify/cors": { "declared": "^11.4.0", "locked": "11.4.0" },
+        "fastify-plugin (nested under @fastify/cors)": { "locked": "6.0.1", "transitive": true }
+      },
+      "existing_dependency_versions_changed": false,
+      "lockfile_package_entries": 224,
+      "hashes_sha256": {
+        "package-lock.json": "65f0f5a046c71b04736bb2da1c97992b58b191d8b948bb3badc0193113a21853",
+        "package.json": "8b83ab607337fe1955f5a2f4f2dc95e066b9ea3ff8e8bf705192e491b94a85f7",
+        "web/package.json": "da4edd75a8b7df256c2d1fb3ca35908a4e7917ddbf3dd9cd566991d85b6d1007"
+      },
+      "verification": {
+        "format_check": "passed",
+        "build": "passed",
+        "test": {
+          "tests": 1588,
+          "pass": 1566,
+          "fail": 0,
+          "cancelled": 11,
+          "skipped": 1,
+          "todo": 10,
+          "exit_code": 1
+        },
+        "new_tests": 144,
+        "cancelled_tests_cause": "unchanged: the pre-existing server/llm/llm.test.js group (see compatibility.suspected_issues)",
+        "llm_calls_made": false
+      },
+      "docker": {
+        "images_rebuilt": true,
+        "apayee_host_port_published": false,
+        "capabilities_dropped": true,
+        "claude_cli_works_under_hardening": true,
+        "auth_volume_preserved": true
+      }
+    },
+    {
+      "at": "2026-11-03",
+      "reason": "Public demo backend (async jobs) and frontend implemented; test baseline updated; lockfile libc check. Node.js, npm and Git unchanged. Nothing deployed.",
+      "dependencies_added": "none since the previous addendum",
+      "hashes_sha256_unchanged_from_previous_addendum": true,
+      "verification": {
+        "format_check": "passed",
+        "build": "passed",
+        "git_diff_check": "clean",
+        "test": {
+          "tests": 1978,
+          "pass": 1967,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 1,
+          "todo": 10,
+          "exit_code": 0
+        },
+        "cancelled_tests": "resolved: test-only fix in server/llm/llm.test.js; a cancelled test is now a regression",
+        "llm_calls_made": false
+      },
+      "vite_variables": [
+        "VITE_PUBLIC_DEMO",
+        "VITE_API_BASE_URL",
+        "VITE_TURNSTILE_SITE_KEY",
+        "VITE_TURNSTILE_ACTION"
+      ],
+      "vite_variables_note": "public by design; no secret may use a VITE_ name",
+      "env_example_files": [".env.example", "web/.env.example"],
+      "deployed": false,
+      "lockfile_libc_check": {
+        "markers_missing_in_working_tree": 19,
+        "versions_changed": false,
+        "linux_environment": "throwaway container, Node.js 22.15.0, npm 10.9.2, Debian bookworm (glibc); copies of package files only",
+        "npm_ci_committed_lockfile_packages": 158,
+        "npm_ci_working_tree_packages": 163,
+        "npm_ci_working_tree_installs_unneeded_musl_variants": true,
+        "npm_ci_with_libc_restored_packages": 161,
+        "lockfile_change_necessary": false,
+        "lockfile_change_applied": false
+      }
+    }
+  ]
 }

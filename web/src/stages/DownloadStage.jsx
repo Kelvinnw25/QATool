@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { api, downloadBlob } from '../api.js';
+import { userMessage } from '../jobs/failure.js';
+import { useConfig } from '../state/appConfig.js';
 import { useCanonical } from '../state/canonical.jsx';
 
 /**
@@ -13,6 +15,7 @@ import { useCanonical } from '../state/canonical.jsx';
  */
 export function DownloadStage({ result, onStartNew, onBack }) {
   const { canonical } = useCanonical();
+  const { demo } = useConfig();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -23,7 +26,7 @@ export function DownloadStage({ result, onStartNew, onBack }) {
       const { blob, filename } = await api.exportWorkbook(canonical);
       downloadBlob(blob, filename);
     } catch (cause) {
-      setError(cause.message);
+      setError(userMessage(cause, { demo }));
     } finally {
       setBusy(false);
     }

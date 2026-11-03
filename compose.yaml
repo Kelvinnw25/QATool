@@ -1,0 +1,106 @@
+# QATOOL + Apayee for local development: exactly three long-running services.
+# See docs/DOCKER_LOCAL.md. No secret value appears in this file: the backend reads ./.env and
+# Apayee reads ../Apayee/.env at run time, and neither file is part of any image.
+#
+#   docker compose up -d --build
+#
+# The host workflow (npm run dev) is unchanged. Stop it first: it uses ports 3001 and 5173.
+#
+# Hardening (docs/PUBLIC_DEMO_SECURITY.md): Apayee is reachable ONLY on the compose network,
+# every service drops all Linux capabilities and cannot gain privileges, and each has a memory,
+# CPU and process ceiling so one runaway request cannot take the Docker VM with it. The ceilings
+# are generous starting points, not tuned figures; raise one if a service is killed (OOMKilled).
+
+name: qatool
+
+services:
+  # Node.js service plus the native Linux Claude Code CLI. Built from the sibling repository.
+  # Deliberately publishes NO port: qatool-backend reaches it at http://apayee:4100 over the
+  # network below, and nothing else needs to. Port 4101 (the application itself) is not
+  # published either. Check it from inside: `docker compose exec apayee ...` (docs/DOCKER_LOCAL.md).
+  apayee:
+    build:
+      context: ../Apayee
+    image: apayee:local
+    env_file: ../Apayee/.env
+    environment:
+      # Overrides a Windows path (C:\...\claude.exe) that the host .env may hold; environment
+      # wins over env_file. APAYEE_HOST and APAYEE_PORT need no override: the image entrypoint
+      # fixes them (Apayee on 127.0.0.1:4101, socat on 0.0.0.0:4100).
+      APAYEE_CLAUDE_CLI_PATH: /home/node/.local/bin/claude
+    volumes:
+      # The container user's Claude sign-in. Survives `down` and rebuilds. Not a Windows login.
+      - apayee-claude-config:/home/node/.claude
+    networks: [qatool-net]
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 2g
+    cpus: 2.0
+    # Threads count as processes here, and the CLI starts many.
+    pids_limit: 512
+    # Healthcheck is the image's: an authenticated GET /v1/health using the container's own token.
+    # Healthy means "up", not "Claude ready": read provider and provider_status in the body.
+
+  qatool-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: qatool-backend:local
+    init: true
+    env_file: .env
+    environment:
+      # Container networking only; the host .env keeps its loopback values.
+      HOST: 0.0.0.0
+      PORT: '3001'
+      APAYEE_BASE_URL: http://apayee:4100
+    ports:
+      - '127.0.0.1:3001:3001'
+    networks: [qatool-net]
+    depends_on:
+      apayee:
+        condition: service_healthy
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    # Uploads, one parse and one archive inflate at a time are bounded by the limits in
+    # server/security/settings.js; this is the backstop behind them.
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    # Healthcheck is the image's: GET /healthz, which needs no credentials in public mode.
+
+  qatool-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: qatool-frontend:local
+    init: true
+    # No env_file on purpose: the frontend gets no keys and no tokens.
+    environment:
+      API_PROXY_TARGET: http://qatool-backend:3001
+    ports:
+      - '127.0.0.1:5173:5173'
+    networks: [qatool-net]
+    depends_on:
+      qatool-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+
+networks:
+  qatool-net:
+
+volumes:
+  # The Claude sign-in. External: it already exists (created once, then signed in), and Compose neither
+  # creates nor owns it, so `docker compose down -v` leaves it alone instead of signing the CLI out.
+  # If it is ever missing, `docker compose up` stops with an error rather than making an empty one;
+  # create it deliberately with `docker volume create apayee-claude-config` and sign in again.
+  # The fixed name is also what Apayee's own docs and `docker run` commands refer to.
+  apayee-claude-config:
+    external: true
+    name: apayee-claude-config

@@ -1,0 +1,31 @@
+# What `vercel deploy` uploads from this folder. The browser app is built from package.json,
+# package-lock.json and web/ alone, so everything else stays on this PC: above all the backend,
+# the Docker files, the documentation and every environment file. See docs/STAGING_DEPLOYMENT.md.
+
+# Secrets and per-machine settings (never upload; the backend's .env is not the frontend's concern)
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+.cloudflared
+.claude
+.vercel
+
+# The backend and everything that only it uses
+server
+templates
+fixtures
+scripts
+docs
+deploy
+Dockerfile.backend
+Dockerfile.frontend
+compose.yaml
+.dockerignore
+
+# Generated or installed
+node_modules
+web/node_modules
+web/dist

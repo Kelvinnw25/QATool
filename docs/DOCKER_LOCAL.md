@@ -2,8 +2,9 @@
 
 Three containers on Docker Desktop (WSL2 backend) started by one Compose file. This is an optional way
 to run the same code; the host workflow (`npm run dev`) is unchanged. For versions and the host
-environment see [`ENVIRONMENT_SNAPSHOT.md`](ENVIRONMENT_SNAPSHOT.md); for Apayee's own image see
-`../Apayee/docs/DOCKER_LOCAL.md`.
+environment see [`ENVIRONMENT_SNAPSHOT.md`](ENVIRONMENT_SNAPSHOT.md); for Apayee's own image and standalone
+`docker run` see `../Apayee/docs/DOCKER_LOCAL.md`. A start-to-finish checklist for a new laptop (both repositories)
+is in the root [README](../README.md#setup-on-a-new-windows-laptop); this file is the detailed Docker reference.
 
 ## Contents
 
@@ -46,6 +47,10 @@ user, with all Linux capabilities dropped, `no-new-privileges`, and memory, CPU 
 Start order is enforced by health checks: `apayee` healthy, then `qatool-backend` healthy, then
 `qatool-frontend`.
 
+For a public staging run the frontend container is not needed (Vercel serves the UI) and the backend is reached
+through a Cloudflare Tunnel started from Windows, never from a container: see
+[STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md). This file stays about the local stack.
+
 Apayee has no host port on purpose: only the backend needs it, over the network. To reach it yourself, run
 a command inside the container (see [Health checks](#health-checks)).
 
@@ -71,8 +76,10 @@ bundled with Node 22.15.0 (10.9.2); the Windows PC uses 11.6.4. `npm ci` accepts
 2. **Nothing else uses ports 3001 or 5173.** Stop `npm run dev` first. Otherwise `up` fails with "port is
    already allocated". An Apayee started with `npm start` on Windows no longer conflicts (the container
    publishes no port), but it is not the one QATOOL talks to either: the backend reaches the container.
-3. `./.env` (QATOOL) and `../Apayee/.env` exist. `../Apayee` has its `Dockerfile`, `.dockerignore` and
-   `docker/entrypoint.sh`.
+3. `./.env` (QATOOL) and `../Apayee/.env` exist (copy each from its `.env.example`; neither is in Git). `../Apayee` is the
+   other repository cloned next to this one and has its `Dockerfile`, `.dockerignore` and `docker/entrypoint.sh`.
+   The sign-in volume exists: `docker volume ls` lists `apayee-claude-config`, otherwise `docker volume create apayee-claude-config`
+   (it is declared `external`, so `up` stops with an error instead of creating an empty one).
 4. `APAYEE_TOKEN` in QATOOL's `.env` equals `APAYEE_AUTH_TOKEN` in Apayee's `.env`. Compare without
    printing either:
 
@@ -98,7 +105,7 @@ bearer token, the origin check and the readiness checks all still run in Apayee.
 The two published ports are bound to `127.0.0.1`, so nothing is reachable from other machines. Anyone who
 can run `docker inspect` on this PC can read a container's environment, including the token.
 
-Public demo: when `PUBLIC_MODE=true` the backend also requires a Cloudflare Access token on every route and
+Public modes: when `PUBLIC_MODE=true` the backend also requires a Cloudflare Access token on every route and
 the setting `LLM_PROVIDER` may not be `apayee`. All of it is described in
 [PUBLIC_DEMO_SECURITY.md](PUBLIC_DEMO_SECURITY.md); the Compose file is unchanged by it apart from the items
 above, and the container health check uses `/healthz`, which needs no token.
@@ -289,8 +296,10 @@ After the security hardening (same day), rebuilt and recreated with the hardened
 - Measured: a client on the Windows host connecting to the published backend port appears to the container as
   `172.18.0.1`, the Compose network's gateway (relevant to `TRUSTED_PROXY_PEERS`).
 
-Not done: any request to `/api/extract`, `/api/generate`, `/api/validate` or Apayee's `/v1/generate`, any
-model call (so a run with Claude signed in, and Apayee's behaviour under load, are untested), and behaviour
-across a Windows restart. The browser sign-in is the owner's and was done outside this work.
-The Claude provider remains experimental and owner-only; whether this use is permitted is unconfirmed, as in
-`../Apayee/docs/CLAUDE_PROVIDER.md`.
+Not done in that verification (2026-11-03): any request to `/api/extract`, `/api/generate`, `/api/validate` or Apayee's
+`/v1/generate`, any model call (so a run with Claude signed in, and Apayee's behaviour under load, were untested), and behaviour
+across a Windows restart. Since then the stack has been used for the public staging demo ([STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md)):
+a browser Turnstile session through a Quick Tunnel was verified, but a full real generation run through the browser is not yet confirmed.
+After a Windows reboot Docker Desktop must be started again; the containers then restart by themselves (`restart: unless-stopped`) and a Quick
+Tunnel, which is not a container, must be restarted by hand. The browser sign-in is the owner's. The Claude provider remains experimental
+and owner-run; the policy status of serving other people from a personal subscription is unconfirmed, as in `../Apayee/docs/CLAUDE_PROVIDER.md`.

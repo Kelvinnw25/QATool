@@ -115,9 +115,13 @@ Exactly three call sites use `generateJson` (structure, generate, semantic). Kee
 - **Gemini** (`gemini-3.8-flash` default): free tier is 20 requests/day/model and a 503 still consumes
   one. Never retry in a loop. Never send temperature for Gemini 3 unless `LLM_TEMPERATURE` is set.
   A full run costs 3 calls (extract, generate, semantic; the UI always asks for semantic).
-- **Apayee** is a separate repo at `../Apayee` (127.0.0.1:4100). It is read-only from QATOOL's side:
-  do not edit it, start/stop it, or call it from tests (`npm test` blocks non-localhost traffic; the
-  fake gateway in `server/llm/fixtures/` stands in). QATOOL has no Claude credentials.
+- **Apayee** is a separate Git repo cloned as a sibling, `../Apayee` (host: 127.0.0.1:4100; in Docker it has no
+  host port and is `http://apayee:4100`). Compose builds it from there and reads `../Apayee/.env`. `APAYEE_TOKEN`
+  (QATOOL) must equal `APAYEE_AUTH_TOKEN` (Apayee). The Claude login lives in the external Docker volume
+  `apayee-claude-config`, never in Git. It is read-only from QATOOL's side unless the user explicitly asks for a
+  change there: do not edit it, start/stop it, or call it from tests (`npm test` blocks non-localhost traffic; the
+  fake gateway in `server/llm/fixtures/` stands in). QATOOL has no Claude credentials. New-machine setup for both
+  repositories: `README.md` > "Setup on a new Windows laptop".
 - External LLM use for the internal PRDs was explicitly approved by the user; do not re-ask.
 
 ## Commands
@@ -147,7 +151,7 @@ share ports 3001/5173, so only one runs at a time.
 
 Before changing the Node.js or npm version, `package-lock.json` or any dependency version, read
 `docs/ENVIRONMENT_SNAPSHOT.md` (and its `.json` twin): it records the versions last checked, the
-lockfile hash, and the `npm test` baseline: 1,978 tests, 1,967 pass, 0 fail, 0 cancelled, 1 skipped, 10
+lockfile hash, and the `npm test` baseline: 2,009 tests, 1,998 pass, 0 fail, 0 cancelled, 1 skipped, 10
 todo, exit code 0. (The 11 cancelled tests in `server/llm/llm.test.js` that older snapshots record were a
 test-only timer problem, fixed; a cancellation now is a regression.)
 
@@ -157,13 +161,13 @@ test-only timer problem, fixed; a cancellation now is a regression.)
 - Tests sit next to the code as `*.test.js` on `node:test`; the frontend tests are plain `.js` too.
 - Enum values only in `server/schema/enums.js`; ids only via `server/lib/ids.js`; vendor code only in `server/llm/`.
 - Tests read two PDFs by literal path: `fixtures/prd/PRD_*.pdf`. Keep them there.
-- Docs for users are English; the QAI blueprints in `docs/` are Indonesian.
+- Docs for users are English; the QAI blueprints in `docs/archive/` are Indonesian and historical.
 - `server/benchmark/` is a golden oracle: correct it only by citing the source PRD, never to make a run agree.
 
 ## Status and cautions
 
 - V1 pipeline, export, per-run model selection and the Apayee provider are implemented. The QAI P0
-  architecture (`docs/QAI_Blueprint_v4_P0_Refinement.md`) is specified but not implemented, and would
+  architecture (`docs/archive/QAI_Blueprint_v4_P0_Refinement.md`) is specified but not implemented, and would
   supersede the stateless rule for its own path only.
 - Prompt-efficiency audit of stage 1 was done (read-only); nothing was applied. Candidate savings are
   small (system prompt about -9%); serialization of the block list and the schema are the larger levers.
@@ -172,9 +176,12 @@ test-only timer problem, fixed; a cancellation now is a regression.)
   `app.js`). `confidence` is a hard enum in the generation reply. Model compliance with the granularity
   rules has not been proven by a recorded live run.
 - Backend hardening (P1), the public demo's async job backend and the public demo frontend (Turnstile session, job
-  client, queue/phase UI) are implemented and tested offline. **Nothing is deployed:** the Vercel project, the
-  Cloudflare tunnel and Turnstile keys are not set up, and no real model run has been measured. `jose` and
-  `@fastify/cors` are the two dependencies added. Remaining risks are in `docs/PUBLIC_DEMO_SECURITY.md` and
-  `docs/PUBLIC_DEMO_JOBS.md`.
+  client, queue/phase UI) are implemented and tested offline. **Staging is deployed, not a standing service:** the frontend is
+  at `https://qatool-staging.vercel.app` (Vercel project `qatool-staging`), the backend runs in Docker on the owner's PC behind a free
+  Cloudflare Quick Tunnel, and a browser Turnstile session was verified. A full real generation and export run through the browser is **not
+  yet confirmed** and no real model run has been measured. The tunnel address changes on every restart (update `VITE_API_BASE_URL`, redeploy);
+  the Vercel page stays up while the PC, Docker or the tunnel is off. Runbook: `docs/STAGING_DEPLOYMENT.md`; `vercel.json`, `.vercelignore`
+  and `deploy/` hold the templates. `jose` and `@fastify/cors` are the two dependencies added. Remaining risks are in
+  `docs/PUBLIC_DEMO_SECURITY.md` and `docs/PUBLIC_DEMO_JOBS.md`.
 - Under `npm run dev` the UI double-runs each phase (React StrictMode); production does not.
 - Keep `.env` out of anything you print: read variable names only.

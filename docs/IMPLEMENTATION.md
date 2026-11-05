@@ -3,8 +3,8 @@
 > **Document map:** this is the detailed implementation reference (it was the root `README.md`
 > until the 2 November 2026 cleanup). Start with [`../README.md`](../README.md) for setup and an
 > overview, and [`../CLAUDE.md`](../CLAUDE.md) for the working context for Claude Code.
-> Some Apayee notes below ("mock provider only") predate the Claude provider that Apayee now
-> offers; the model-selection behaviour in 17.2 is current.
+> The public demo (Turnstile tickets and the async job API) is documented in
+> [PUBLIC_DEMO_JOBS.md](PUBLIC_DEMO_JOBS.md); this file describes the local tool and the shared pipeline.
 
 Internal QA productivity tool for turning project documents (PRD, RFC, specs)
 into a reviewed **SIT Script** workbook. A QA analyst uploads documents, three
@@ -17,7 +17,7 @@ office template that QA reviews by hand.
 > **Target architecture (not yet implemented):** the QAI P0 pipeline — two LLM
 > calls, run-scoped artifact storage, no obligation engine, existing workbook
 > plus red highlighting for rows that need QA review — is specified in
-> [`QAI_Blueprint_v4_P0_Refinement.md`](QAI_Blueprint_v4_P0_Refinement.md).
+> [`archive/QAI_Blueprint_v4_P0_Refinement.md`](archive/QAI_Blueprint_v4_P0_Refinement.md).
 > This README describes the pipeline as it is implemented today.
 
 ---
@@ -512,7 +512,7 @@ Outcome-centric, and this catches people out: exactly 3 failed sign-in attempts
 (the documented limit) is expected to **lock the account**, which is a refusal —
 so the polarity is `invalid`, even though the value is "valid". A boundary that
 triggers a restriction is always `invalid`. See
-[docs/edge-cases.md](docs/edge-cases.md).
+[edge-cases.md](edge-cases.md).
 
 ### Duplicate handling
 
@@ -992,15 +992,17 @@ QATOOL → server/llm/apayee.js → POST /v1/generate → Apayee → its provide
 **Run it on one machine**
 
 ```bash
-# terminal 1, in the Apayee project
-npm install && npm start            # listens on http://127.0.0.1:4100
+# terminal 1, in the Apayee project (sibling folder ../Apayee)
+npm ci && npm start                 # listens on http://127.0.0.1:4100; needs its own .env (see its README)
 
 # terminal 2, in QATOOL
 LLM_PROVIDER=apayee npm run dev:server      # or set it in .env
 ```
 
-`APAYEE_BASE_URL` defaults to `http://127.0.0.1:4100`, so nothing else is
-needed while Apayee runs locally without a token.
+`APAYEE_BASE_URL` defaults to `http://127.0.0.1:4100`. Apayee requires a bearer token
+(`APAYEE_AUTH_TOKEN`), so QATOOL's `APAYEE_TOKEN` must hold the same value. Under Docker
+Compose the backend reaches the unpublished container at `http://apayee:4100`
+([DOCKER_LOCAL.md](DOCKER_LOCAL.md)).
 
 **Run Apayee on another PC.** Apayee refuses remote binding unless it has
 `APAYEE_ALLOW_REMOTE=true` and a strong `APAYEE_AUTH_TOKEN`. Put that same
@@ -1051,15 +1053,15 @@ not used (it is aborted by every normally completed POST); see
 
 **Limitations**
 
-- Apayee currently has a **mock provider only**, so nothing real is generated
-  through it yet. Its stock mock answers a schema with the smallest value that
-  satisfies it, which for QATOOL means no requirements and no test cases:
-  structuring falls back to deterministic extraction and generation ends in
-  `GENERATION_EMPTY`. That is correct behaviour for an empty answer, and the
-  tests below use scripted replies to reach the workbook.
-- **Claude subscription integration is not part of this provider.** There is no
-  Claude, Anthropic or other vendor code here; that depends on a future Apayee
-  provider.
+- Apayee also ships a **mock provider** (`APAYEE_PROVIDER=mock`). Its stock mock answers a
+  schema with the smallest value that satisfies it, which for QATOOL means no requirements and
+  no test cases: structuring falls back to deterministic extraction and generation ends in
+  `GENERATION_EMPTY`. That is correct behaviour for an empty answer, and the tests below use
+  scripted replies to reach the workbook.
+- **Claude is Apayee's concern, not QATOOL's.** Apayee's Claude provider drives a locally
+  signed-in Claude Code CLI. There is no Claude, Anthropic or other vendor code in QATOOL, and
+  QATOOL holds no Claude credentials; sign-in is described in the Apayee repository
+  (`docs/CLAUDE_PROVIDER.md`) and, for Docker, in [DOCKER_LOCAL.md](DOCKER_LOCAL.md#one-time-claude-sign-in).
 - A call is abandoned after `LLM_TIMEOUT_MS + APAYEE_QUEUE_WAIT_MS`.
 - Under `npm run dev` the UI starts each processing phase twice (React
   StrictMode re-runs the mount effect), so a development run makes two calls per
@@ -1085,15 +1087,15 @@ $env:QATOOL_APAYEE_SMOKE=1; npm run test:apayee                   # PowerShell
 
 **Checking it in the browser (manual).** Start Apayee, then QATOOL, then the UI:
 
-1. In the Apayee project: `npm start`.
+1. In the Apayee project: `npm start` (or use the Docker stack).
 2. In QATOOL: `LLM_PROVIDER=apayee npm run dev` (set it in `.env`, or in PowerShell
    `$env:LLM_PROVIDER='apayee'`).
 3. Open http://localhost:5173, name the project, upload a synthetic document, and
-   press Process. Apayee's stock mock returns no requirements, so expect the
-   deterministic-fallback warning and a `GENERATION_EMPTY` error at generation;
-   that is the mock, not a fault. To see a complete run, serve scripted replies
-   by starting Apayee in-process with its `MockProvider({ output })` option, as
-   `server/llm/apayee.smoke.test.js` does.
+   press Process. With Apayee on its `claude` provider this makes real model calls. With
+   Apayee's stock mock, expect the deterministic-fallback warning and a `GENERATION_EMPTY`
+   error at generation; that is the mock, not a fault. To see a complete run offline, serve
+   scripted replies by starting Apayee in-process with its `MockProvider({ output })` option,
+   as `server/llm/apayee.smoke.test.js` does.
 4. To check cancellation, close the tab while Processing is running and watch
    `GET http://127.0.0.1:4100/v1/health`: `queue.running` returns to `false` and
    `totals.cancelled` increases.
@@ -1153,8 +1155,8 @@ replaced is ignored.
 
 **Limitations**
 
-- Claude cannot be used until a real Apayee Claude provider exists. QATOOL holds
-  no Claude authentication and calls no Anthropic service.
+- Claude is usable only while Apayee reports provider `claude` (its CLI signed in and ready).
+  QATOOL holds no Claude authentication and calls no Anthropic service itself.
 - Availability is a moment-in-time answer. A gateway that stops being Claude
   between the check and the call is caught by the reply check, but only after
   the document was sent to it.
@@ -1163,9 +1165,9 @@ replaced is ignored.
   is already unavailable when the step starts is refused.
 - The picker is not remembered across a page reload.
 
-**Testing the Apayee connection from the browser (while Apayee runs only `mock`).**
-"Claude via Apayee" stays disabled on purpose, so the way to click through the
-QATOOL ↔ Apayee plumbing is the **server default**, not the per-run choice:
+**Testing the Apayee connection from the browser without Claude (Apayee on `mock`).**
+"Claude via Apayee" stays disabled while Apayee is not on `claude`, so the way to click
+through the QATOOL ↔ Apayee plumbing is the **server default**, not the per-run choice:
 
 ```bash
 # terminal 1, in the Apayee project
@@ -1187,7 +1189,7 @@ scripted-reply tests (`npm run test:apayee`) are how to see a complete run.
 What this cannot exercise is the per-run **Claude** path itself - the
 `provider=claude` check and the reply-provider check - because they correctly
 refuse a gateway that is not running `claude`. Those are covered by the tests
-against a fake gateway and become clickable the moment Apayee reports `claude`.
+against a fake gateway and are clickable whenever Apayee reports `claude`.
 
 ---
 
@@ -1207,7 +1209,7 @@ free, offline and deterministic by enforcement, not by convention.
 
 Run `npm test` for the current result. The suite is large and keeps growing, so
 a count written here goes stale; the figure recorded at the time the public demo
-frontend landed (2026-11-03) is **1,978 tests: 1,967 pass, 0 fail, 0 cancelled,
+frontend landed (2026-11-03) is **2,009 tests: 1,998 pass, 0 fail, 0 cancelled,
 1 skipped, 10 todo, exit code 0**, and any cancelled test since is a regression
 (the 11 cancellations in `server/llm/llm.test.js` that older notes mention were a
 test-only timer problem and are fixed). The skipped test and the todo tests were

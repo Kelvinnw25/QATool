@@ -240,7 +240,7 @@
     "recorded_node": "22.15.0 (a copy exists under C:\\laragon\\bin\\nodejs\\node-v22.15.0-win-x64)",
     "recorded_npm": "11.6.4 (npm install --global npm@11.6.4; not executed during snapshot)",
     "verify_offline": ["npm run format:check", "npm run build", "npm test"],
-    "expected_on_recorded_versions": "1978 tests: 1967 passed, 0 failed, 0 cancelled, 1 skipped, 10 todo, exit code 0",
+    "expected_on_recorded_versions": "2009 tests: 1998 passed, 0 failed, 0 cancelled, 1 skipped, 10 todo, exit code 0",
     "expected_on_recorded_versions_historical": "1422 passed, 11 cancelled, 0 failed, exit code 1"
   },
   "addenda": [
@@ -293,8 +293,8 @@
         "build": "passed",
         "git_diff_check": "clean",
         "test": {
-          "tests": 1978,
-          "pass": 1967,
+          "tests": 2009,
+          "pass": 1998,
           "fail": 0,
           "cancelled": 0,
           "skipped": 1,
@@ -324,6 +324,32 @@
         "lockfile_change_necessary": false,
         "lockfile_change_applied": false
       }
+    },
+    {
+      "at": "2026-11-05",
+      "reason": "Staging deployment state recorded and documentation cleaned up. Node.js, npm, Git, package.json and package-lock.json unchanged. No LLM calls; Docker not running during verification.",
+      "verification": {
+        "format_check": "passed",
+        "build": "passed",
+        "git_diff_check": "clean",
+        "test": {
+          "tests": 2009,
+          "pass": 1998,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 1,
+          "todo": 10,
+          "exit_code": 0
+        },
+        "llm_calls_made": false
+      },
+      "staging": {
+        "frontend": "https://qatool-staging.vercel.app (Vercel project qatool-staging, production alias)",
+        "backend": "Docker on the owner's PC behind a Cloudflare Quick Tunnel (address changes on every restart)",
+        "browser_turnstile_session_verified": true,
+        "full_real_generation_and_export_confirmed": false
+      },
+      "deployed": true
     }
   ]
 }

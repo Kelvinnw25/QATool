@@ -3,8 +3,8 @@
 How the QATOOL backend protects itself when it sits behind a Cloudflare Tunnel for a public portfolio
 demo. This covers the **owner-only backend mode and Compose**. The visitor-facing public demo (Turnstile
 tickets, async jobs and its frontend) is implemented and described in [PUBLIC_DEMO_JOBS.md](PUBLIC_DEMO_JOBS.md).
-The Vercel deployment and the tunnel itself are not set up yet (nothing is deployed);
-[what they must provide](#what-the-infrastructure-must-provide) is listed below.
+Deployment is described in [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md) (frontend on Vercel, backend on the owner's PC behind a Cloudflare
+Quick Tunnel); [what the infrastructure must provide](#what-the-infrastructure-must-provide) is listed below.
 
 > **The rule this enforces:** the public can look at the frontend. Only the owner can reach the live
 > backend, and only the owner can spend the personal Claude subscription behind Apayee.
@@ -298,7 +298,7 @@ Not part of this work; the backend assumes them.
 ## Verification
 
 Test baseline at the time of writing (2026-11-03, whole repository including the public demo backend and
-frontend): 1,978 tests, 1,967 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo.
+frontend): 2,009 tests, 1,998 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo.
 
 Offline only: no real model, no network, no tunnel (the suite's network guard refuses anything but
 loopback). The fake gateway records every request, so "never reached Apayee" is a count, not a claim.
@@ -344,8 +344,8 @@ without Origin.
   one-at-a-time gate bounds how many run together in public mode.
 - **Non-browser clients cannot POST** in public mode (no `Origin`). This is a deliberate consequence of the
   CSRF guard.
-- **Not covered here:** anything about Vercel or Cloudflare configuration (neither is set up; nothing is
-  deployed), TLS (the tunnel provides it), and a web application firewall. The visitor demo's frontend is
+- **Not covered here:** Vercel or Cloudflare account configuration (see [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md)), TLS (the tunnel
+  provides it), and a web application firewall (a Quick Tunnel cannot use one). The visitor demo's frontend is
   covered in [PUBLIC_DEMO_JOBS.md](PUBLIC_DEMO_JOBS.md#the-frontend).
 
 ## The public demo (PUBLIC_DEMO)

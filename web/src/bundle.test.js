@@ -97,6 +97,17 @@ describe('the public demo bundle', () => {
     }
   });
 
+  it('contains no test fixture and no address of the backend host', () => {
+    // The stand-in backend and its sample tokens are test code; the production build must not reach them.
+    for (const marker of ['fake-backend', 'turnstile-good', 'ticket-1', 'b_boot1']) {
+      assert.ok(!demo.includes(marker), `${marker} appears in the demo bundle`);
+    }
+    // The API is reached at the configured origin and nowhere else.
+    for (const address of ['127.0.0.1:3001', 'localhost:3001', ':4100', ':4101', 'cfargotunnel']) {
+      assert.ok(!demo.includes(address), `${address} appears in the demo bundle`);
+    }
+  });
+
   it('carries the public settings it was given and nothing more', () => {
     assert.ok(demo.includes('https://api.example.com'));
     assert.ok(demo.includes('1x00000000000000000000AA'));

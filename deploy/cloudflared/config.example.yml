@@ -1,0 +1,24 @@
+# Cloudflare Tunnel configuration TEMPLATE for the QATOOL staging API. See docs/STAGING_DEPLOYMENT.md.
+#
+# Copy this to  %USERPROFILE%\.cloudflared\config.yml  (OUTSIDE the repository) and replace the three
+# <PLACEHOLDERS>. Never commit the filled-in copy, the tunnel's credentials file, or cert.pem.
+#
+# cloudflared runs on the WINDOWS HOST, not in Docker. It dials out to Cloudflare; nothing listens for it.
+#
+# Exactly one public hostname, one origin, then a catch-all that answers 404 for everything else.
+# Never add 4100 or 4101 (Apayee: internal only) or 5173 (the Vite dev server: never public).
+
+# The tunnel's ID, printed by `cloudflared tunnel create`. Do not guess or reuse another.
+tunnel: <TUNNEL_UUID>
+
+# Written by `cloudflared tunnel create` next to cert.pem. A secret: whoever holds it can run this tunnel.
+credentials-file: C:\Users\<WINDOWS_USER>\.cloudflared\<TUNNEL_UUID>.json
+
+ingress:
+  # The QATOOL backend, published by Docker on the loopback address only (127.0.0.1:3001).
+  # If a connection error mentions [::1], use http://127.0.0.1:3001 here instead: same machine, IPv4 only.
+  - hostname: api.<DOMAIN>
+    service: http://localhost:3001
+
+  # Required last rule: anything that does not match a hostname above gets a 404.
+  - service: http_status:404

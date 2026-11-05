@@ -1,7 +1,6 @@
 # Prettier also reads .gitignore. These are tracked files it should leave alone.
 package-lock.json
 
-# Historical blueprint baselines, kept exactly as written. See docs/QAI_Blueprint_v4_P0_Refinement.md.
-docs/QAI_Blueprint_v4.md
-docs/QAI_Blueprint_v4_P0_Refinement.md
+# Archived blueprint baselines, kept exactly as written. See docs/archive/QAI_Blueprint_v4_P0_Refinement.md.
+docs/archive/
 docs/HUMAN_REVIEW_QUEUE.csv

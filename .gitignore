@@ -9,6 +9,15 @@ web/dist/
 .env.*
 !.env.example
 
+# Cloudflare Tunnel credentials and certificates live in the .cloudflared folder of your user profile, never here.
+.cloudflared/
+cert.pem
+*.pem
+*.key
+
+# Vercel CLI link (project and team ids for this folder). Per machine.
+.vercel/
+
 # Captured output from scripts/qa-eval - evaluation artifacts, not source.
 .qa-eval-output/
 

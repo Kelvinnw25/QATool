@@ -2,8 +2,10 @@
 
 `PUBLIC_DEMO=true`. A third mode beside local (default) and `PUBLIC_MODE` (owner-only, Cloudflare Access;
 [PUBLIC_DEMO_SECURITY.md](PUBLIC_DEMO_SECURITY.md)). The two public modes cannot be switched on together.
-The backend and the browser side ([The frontend](#the-frontend)) are implemented and tested offline. **Nothing is deployed:**
-no Vercel project, Cloudflare tunnel or Turnstile key exists yet, and no real model run has been measured.
+The backend and the browser side ([The frontend](#the-frontend)) are implemented and tested offline. **Staging:** the frontend is
+deployed to Vercel (`https://qatool-staging.vercel.app`) and a browser Turnstile session through a Cloudflare Quick Tunnel has been
+verified; a full real generation and export run through the browser is not yet confirmed, and no real model run has been measured
+([STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md)).
 
 Target: about ten visitors on their own devices run the real pipeline at once. The frontend is on Vercel,
 this backend runs in Docker on the owner's PC behind a Cloudflare Tunnel, and Apayee stays on the private
@@ -266,7 +268,7 @@ was made).
 ## The frontend
 
 `web/src/`, built with `VITE_PUBLIC_DEMO=true`. Without it the same code is the local tool, unchanged (the model picker, relative
-`/api/...` calls through the Vite proxy). Implemented and tested offline; **not deployed**.
+`/api/...` calls through the Vite proxy). Implemented and tested offline; deployed to staging (see the status note at the top of this file).
 
 ### Build-time settings
 
@@ -325,12 +327,17 @@ The upload page states that documents are sent to the QATOOL demo server, that t
 server is configured with (no provider is named), that jobs and results are held in the server's memory for minutes and lost on a
 restart, and that there is no database. It also checks files against the limits the session announced before sending anything.
 
-### What deployment still needs (none of it exists yet)
+### What a deployment needs
+
+The full runbook (architecture, Vercel and Cloudflare settings, the Windows operating guide, checklist and rollback) is
+[STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md); this is the short list.
 
 - **Vercel:** build variables `VITE_PUBLIC_DEMO=true`, `VITE_API_BASE_URL`, `VITE_TURNSTILE_SITE_KEY` (and `VITE_TURNSTILE_ACTION` if changed).
 - **Backend:** `ALLOWED_ORIGINS` containing the exact Vercel origin; `TICKET_SECRET`, `TURNSTILE_SECRET`, `TURNSTILE_HOSTNAMES` (the Vercel
   hostname must also be allowed on the widget), `TRUSTED_PROXY_PEERS`.
-- **Cloudflare:** a tunnel to the backend only, and whatever WAF rules the owner wants. Neither is configured.
+- **Cloudflare:** a tunnel to the backend only (staging uses a free Quick Tunnel whose address changes on every restart, so
+  `VITE_API_BASE_URL` must be updated and the page redeployed each time), and whatever WAF rules the owner wants (a Quick Tunnel
+  cannot use zone rules; a named tunnel on an owned domain can).
 
 ### Frontend limits
 
@@ -362,7 +369,7 @@ Offline only, no model, no Cloudflare, no Apayee. New suites: `security/{limiter
 `security/uploads.form.test.js`, `jobs/{manager,jobs.api,jobs.flow,simulation,modes,metrics}.test.js`,
 `extract/{isolated,ceilings}.test.js`, `pipeline/merge.test.js`, `llm/apayee.capacity.test.js`; and on the frontend
 `web/src/{config,api.demo,bundle,useProviders}.test.js`, `session/session.test.js`, `jobs/{run,failure}.test.js`,
-`components/demo.ui.test.js`. Whole-repository baseline: **1,978 tests, 1,967 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo**
+`components/demo.ui.test.js`. Whole-repository baseline: **2,009 tests, 1,998 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo**
 (2026-11-03). Covered:
 ticket signature, pinned algorithm, issuer, audience, expiry, tampering; Turnstile failure, replay (including
 concurrent), wrong hostname/action, stale, unavailable; the CORS and Origin matrix; ownership across ten
@@ -381,4 +388,7 @@ gateway; sanitised errors and metadata-only logs; no direct model route; local a
 - **Policy:** serving other people from a Claude subscription is, per Apayee's own documentation, of unconfirmed
   status with Anthropic. That is the owner's decision and risk; nothing here changes it.
 - **Local mode** still parses in-thread, where the quadratic inputs above apply to the person running it.
-- **Nothing is deployed**, and the frontend has not been run against a real model, Cloudflare or Vercel; see [The frontend](#the-frontend).
+- **A real end-to-end run is not yet confirmed:** the deployed frontend has passed a Turnstile session, but no complete real
+  generation and export through the browser has been recorded; see [The frontend](#the-frontend).
+- **The staging host is a PC:** if it sleeps, reboots, or the tunnel restarts, the demo is unreachable until the stack, a new tunnel and
+  a redeploy are done (the Vercel page itself stays up).

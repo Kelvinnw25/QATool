@@ -26,6 +26,7 @@ compatibility checks and quick recovery. Machine-readable twin:
 14. [Integrity: hashes and Git state](#14-integrity-hashes-and-git-state)
 15. [Addendum: after the backend security hardening](#15-addendum-after-the-backend-security-hardening-2026-11-03)
 16. [Addendum: public demo backend and frontend, test baseline, lockfile check](#16-addendum-public-demo-backend-and-frontend-test-baseline-lockfile-check-2026-11-03)
+17. [Addendum: staging deployment state and documentation cleanup](#17-addendum-staging-deployment-state-and-documentation-cleanup-2026-11-05)
 
 ## 1. Snapshot date and purpose
 
@@ -59,8 +60,10 @@ compatibility checks and quick recovery. Machine-readable twin:
 | Docker Compose | **v5.6.1**               |                                                                                              |
 | WSL            | **2.6.3.0**              | Kernel 6.6.87.2-1, WSLg 1.0.71, default WSL version 2, default distribution `docker-desktop` |
 
-Docker and WSL are recorded only because they exist on this PC. **QATOOL does not use them**: the
-repository tracks no Dockerfile or compose file, and the app has no native dependencies. Whether the
+Docker and WSL are recorded because they exist on this PC. **At capture time QATOOL did not use them**: the
+repository tracked no Dockerfile or compose file, and the app has no native dependencies. (Since then an optional
+Docker stack was added, see [DOCKER_LOCAL.md](DOCKER_LOCAL.md) and section 15; the host install in section 7 needs
+neither.) Whether the
 Windows optional features (WSL, Virtual Machine Platform) are enabled was not recorded because that
 query needs an elevated shell.
 
@@ -146,7 +149,7 @@ optional and the project does not rely on them.
 
 ## 7. Clean installation
 
-Requirements: Node.js `>=22.13.0` and npm. No database, no Docker.
+Requirements: Node.js `>=22.13.0` and npm. No database; Docker is optional (see [DOCKER_LOCAL.md](DOCKER_LOCAL.md)).
 
 ```powershell
 git clone <repo-url> QATOOL
@@ -348,7 +351,7 @@ Then repeat step 2.
 npm run format:check; npm run build; npm test
 ```
 
-On the recorded versions the expected result is now **1,978 tests: 1,967 passed, 0 failed, 0 cancelled,
+On the recorded versions the expected result is now **2,009 tests: 1,998 passed, 0 failed, 0 cancelled,
 1 skipped, 10 todo, exit code 0** (section 16). The earlier baseline (1422 passed, 11 cancelled, exit code 1,
 section 11) is historical. A different result means the environment has drifted from this snapshot, and any
 cancelled test is a regression.
@@ -450,18 +453,18 @@ figures below supersede the baseline. Node.js (22.15.0), npm (11.6.4) and Git ar
 ## 16. Addendum: public demo backend and frontend, test baseline, lockfile check (2026-11-03)
 
 Supersedes sections 8 (the `VITE_*` and `.env.example` statements), 11 and 12 step 4 (the cancelled tests) for
-the items below. Node.js (22.15.0), npm (11.6.4) and Git are unchanged. **Nothing is deployed.**
+the items below. Node.js (22.15.0), npm (11.6.4) and Git are unchanged. **Nothing was deployed at this date** (see section 17 for the later staging state).
 
-| Item                   | Value                                                                                                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm test`             | **1,978 tests: 1,967 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo; exit code 0** (the skipped and todo tests are the same ones as before)                            |
-| `npm run format:check` | passed                                                                                                                                                                |
-| `npm run build`        | passed                                                                                                                                                                |
-| `git diff --check`     | clean                                                                                                                                                                 |
-| New dependencies       | none since section 15 (the async job backend and the public demo frontend add code only). `package.json` and `package-lock.json` hashes are unchanged from section 15 |
-| `.env.example`         | now present: root (backend settings) and `web/.env.example` (the four `VITE_` settings below)                                                                         |
-| `VITE_*` variables     | four exist, all public by design and none secret: `VITE_PUBLIC_DEMO`, `VITE_API_BASE_URL`, `VITE_TURNSTILE_SITE_KEY`, `VITE_TURNSTILE_ACTION`                         |
-| Deployment             | none: no Vercel project, Cloudflare tunnel or Turnstile key; no real model run measured                                                                               |
+| Item                    | Value                                                                                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test`              | **2,009 tests: 1,998 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo; exit code 0** (the skipped and todo tests are the same ones as before)                            |
+| `npm run format:check`  | passed                                                                                                                                                                |
+| `npm run build`         | passed                                                                                                                                                                |
+| `git diff --check`      | clean                                                                                                                                                                 |
+| New dependencies        | none since section 15 (the async job backend and the public demo frontend add code only). `package.json` and `package-lock.json` hashes are unchanged from section 15 |
+| `.env.example`          | now present: root (backend settings) and `web/.env.example` (the four `VITE_` settings below)                                                                         |
+| `VITE_*` variables      | four exist, all public by design and none secret: `VITE_PUBLIC_DEMO`, `VITE_API_BASE_URL`, `VITE_TURNSTILE_SITE_KEY`, `VITE_TURNSTILE_ACTION`                         |
+| Deployment (2026-11-03) | none: no Vercel project, Cloudflare tunnel or Turnstile key; no real model run measured                                                                               |
 
 **The 11 cancelled tests are resolved.** The cause was in the test, not the application: the "reports a timeout as a
 timeout" test waited only on an unreferenced `AbortSignal.timeout` timer, so the process drained its event loop and the
@@ -488,3 +491,19 @@ files only:
 cost of leaving it is a few unused musl binaries on Linux and a lockfile that differs from the committed one in 76 lines of
 noise. Restoring the 19 fields (and nothing else) is safe and optional; it is not applied here, because it changes the lockfile
 hash recorded in section 15. If it is applied, regenerate nothing: copy the `libc` values from `git show HEAD:package-lock.json`.
+
+## 17. Addendum: staging deployment state and documentation cleanup (2026-11-05)
+
+Current results, run after the documentation cleanup on the same toolchain (Node.js 22.15.0, npm 11.6.4). The earlier sections
+stay as the dated records they are; where section 16 says "nothing deployed", that was true on 2026-11-03.
+
+| Item                     | Value                                                                                                                                                                                                                                                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test`               | **2,009 tests: 1,998 pass, 0 fail, 0 cancelled, 1 skipped, 10 todo; exit code 0** (identical to section 16)                                                                                                                                                                                                                   |
+| `npm run format:check`   | passed                                                                                                                                                                                                                                                                                                                        |
+| `npm run build`          | passed                                                                                                                                                                                                                                                                                                                        |
+| `git diff --check`       | clean                                                                                                                                                                                                                                                                                                                         |
+| Lockfile, `package.json` | SHA-256 values unchanged from section 15; no dependency or version change                                                                                                                                                                                                                                                     |
+| LLM calls made           | none; Docker was not running during this verification, so nothing here exercises the Docker stack                                                                                                                                                                                                                             |
+| Staging                  | the frontend is deployed at `qatool-staging.vercel.app`; the backend runs in Docker on the owner's PC behind a Cloudflare Quick Tunnel; a browser Turnstile session was verified. **A full real generation and export run through the browser is not yet confirmed.** Runbook: [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md) |
+| Repository changes       | `docs/archive/` now holds the two QAI blueprints; `startPrompt` was removed (superseded by the README's "Setup on a new Windows laptop")                                                                                                                                                                                      |

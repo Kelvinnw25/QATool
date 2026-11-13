@@ -32,6 +32,8 @@ const HEALTH_PATH = '/v1/health';
  * widening the contract for a label the gateway does not need.
  */
 const TASK = 'generic';
+/** The pipeline steps the gateway accepts as a log label (its request validation has the same list). */
+const STAGES = ['structure', 'generate', 'review'];
 
 /** A reply this large is not a generation; stop reading rather than buffer it. */
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
@@ -413,7 +415,7 @@ export class ApayeeProvider extends LLMProvider {
     this.#expectedGatewayProvider = settings.expectGatewayProvider ?? null;
   }
 
-  async generateJson({ system, prompt, schema, signal }) {
+  async generateJson({ system, prompt, schema, signal, stage }) {
     const requestId = `qatool-${randomUUID()}`;
 
     const body = Buffer.from(
@@ -423,6 +425,9 @@ export class ApayeeProvider extends LLMProvider {
         system,
         prompt,
         schema,
+        // Which pipeline step this is, for the gateway's log only. A closed list: the gateway
+        // refuses anything else, so an unknown value is left out rather than sent.
+        ...(STAGES.includes(stage) ? { stage } : {}),
         // Apayee's execution budget. LLM_TIMEOUT_MS keeps meaning "how long the
         // model may take", as it does for Gemini; Apayee enforces it at its end.
         timeout_ms: this.#timeoutMs,
@@ -525,7 +530,11 @@ export class ApayeeProvider extends LLMProvider {
 
     if (isRecord(envelope) && envelope.status === 'error' && isRecord(envelope.error)) {
       const known = FOR_APAYEE_CODE[envelope.error.code];
-      if (known) throw known();
+      // The public sentence stays the one the mapping chose; the gateway's code rides along as
+      // `gatewayCode`, for the log only, so INVALID_PROVIDER_RESPONSE can be told from, say,
+      // PROVIDER_TIMEOUT. (`upstreamCode` is different: it is the breaker's input, set above for
+      // the two outage codes only.)
+      if (known) throw Object.assign(known(), { gatewayCode: envelope.error.code });
     }
 
     if (status === 401 || status === 403) throw authFailed();

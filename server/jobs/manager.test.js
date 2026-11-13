@@ -659,6 +659,60 @@ describe('results and failures', () => {
     assert.ok(lines.join('').includes('TypeError'));
   });
 
+  it('logs the gateway code of a failed job, and still tells the visitor only the safe sentence', async () => {
+    const events = [];
+    const h = harness();
+    const failure = new LlmError(
+      'LLM_MALFORMED_OUTPUT',
+      'The model returned a reply that could not be used.',
+      502
+    );
+    failure.gatewayCode = 'INVALID_PROVIDER_RESPONSE';
+    const logged = new JobManager({
+      settings: { ...defaults },
+      run: () => Promise.reject(failure),
+      breaker: h.breaker,
+      metrics: h.metrics,
+      now: h.now,
+      logger: { warn: (fields) => events.push(fields) },
+    });
+    managers.push(logged);
+    logged.observeCapacity({ maxActive: 1, compatible: true });
+    const view = logged.reserve(sid(1)).commit({ from: 'generate', input: {} });
+    await settle();
+
+    const logLine = events.find((fields) => fields.event === 'job_failed');
+    assert.equal(logLine.error_code, 'LLM_MALFORMED_OUTPUT');
+    assert.equal(logLine.upstream_code, 'INVALID_PROVIDER_RESPONSE');
+
+    const failed = logged.status(sid(1), view.id);
+    assert.equal(failed.error.code, 'LLM_MALFORMED_OUTPUT');
+    assert.ok(!('upstream_code' in failed.error) && !('gatewayCode' in failed.error));
+    assert.ok(
+      !JSON.stringify(failed).includes('INVALID_PROVIDER_RESPONSE'),
+      'not shown to the visitor'
+    );
+  });
+
+  it('logs no upstream code when the failure did not come from the gateway', async () => {
+    const events = [];
+    const h = harness();
+    const logged = new JobManager({
+      settings: { ...defaults },
+      run: () => Promise.reject(new TypeError('boom')),
+      breaker: h.breaker,
+      metrics: h.metrics,
+      now: h.now,
+      logger: { warn: (fields) => events.push(fields) },
+    });
+    managers.push(logged);
+    logged.observeCapacity({ maxActive: 1, compatible: true });
+    logged.reserve(sid(1)).commit({ from: 'extract', input: {} });
+    await settle();
+
+    assert.equal(events.find((fields) => fields.event === 'job_failed').upstream_code, null);
+  });
+
   it('exposes only the documented fields', () => {
     const h = harness();
     const view = h.submit(1);

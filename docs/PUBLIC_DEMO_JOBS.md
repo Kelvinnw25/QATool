@@ -184,8 +184,28 @@ Fixed on the server to catalog id `claude` (Claude through Apayee), acquired **o
 The catalog asks the gateway afresh and requires it to say its provider is exactly `claude`; there is no
 fallback to anything else. `LLM_PROVIDER` does not matter in this mode. `APAYEE_TOKEN` stays in the backend.
 The stages are handed a wrapper (`jobs/public-provider.js`) that reports a neutral name and turns any provider
-failure into the fixed public sentence for its code, because structuring and the semantic review write the
-failure message into results a visitor reads.
+failure into the fixed public sentence for its code, because the failure reaches a visitor as the job's error.
+
+### Failure: fail fast, no fallback, retry by hand
+
+There is one model and no substitute for it. If Claude fails at a stage the job fails **in that phase** and stops:
+
+| Phase (`from`) | What fails                            | Job state | `error.phase` | Kept for resume                      |
+| -------------- | ------------------------------------- | --------- | ------------- | ------------------------------------ |
+| `extract`      | the structuring call or its reply     | `failed`  | `extract`     | nothing                              |
+| `generate`     | the generation call or its reply      | `failed`  | `generate`    | the finished `extract` result        |
+| `validate`     | the semantic review call or its reply | `failed`  | `validate`    | the `extract` and `generate` results |
+
+- No deterministic extraction, no partial test cases, no rule-findings-only review, no other provider, and no
+  `DEGRADED` outcome: a job is `completed` or `failed`, and the metrics count it as one or the other
+  (`jobs.failed`, `errors.by_code.<code>`; nothing marks a job completed that failed a required AI stage).
+- The error is a fixed public sentence plus a safe code (`LLM_UNAVAILABLE`, `LLM_TIMEOUT`, `LLM_RATE_LIMITED`,
+  `LLM_MALFORMED_OUTPUT`, …). The gateway's own code is in the backend log only (`upstream_code`).
+- **Nothing retries by itself.** The page offers "Retry from this step"; that is an ordinary new job from the failed phase
+  (`POST /api/jobs` with `from`), allowed because the failed job is over (no `JOB_ALREADY_ACTIVE`). A retry from `generate` or
+  `validate` is built from the finished phases, which are only the ones the resume contract guarantees.
+- Not a Claude failure, so not a failed job: a project that is not structurally valid or has no test cases skips the review
+  (`semantic.llm = "skipped"`, with the reason), and the validation report says so.
 
 The routes that call a model directly are **not registered** in this mode (`/api/extract`, `/api/generate`),
 `POST /api/validate?semantic=true` is `400 USE_JOBS`, and `/api/llm/providers` is absent: nothing can bypass the
@@ -346,7 +366,7 @@ The full runbook (architecture, Vercel and Cloudflare settings, the Windows oper
 - A reload loses the ticket and the page's data (documents, results); nothing is stored to recover them.
 - Verified against the real backend app in-process (fake Turnstile, fake model); never against a real model, Cloudflare or Vercel.
 
-## Metrics (internal, no route)
+## Metrics (internal, no public route)
 
 `app.jobPlatform.metrics.snapshot()` returns plain numbers for a future owner-only dashboard: active sessions
 in the last 2 minutes; tickets minted and failures by kind; jobs queued/processing/completed/failed/cancelled
@@ -354,8 +374,16 @@ in the last 2 minutes; tickets minted and failures by kind; jobs queued/processi
 wait and processing time as count/p50/p95/max over the last 200; rejections by reason; errors by code and
 breaker trips; Apayee `active`/`max_active`/`pending`/`capacity` as last reported; uploads and parses in
 flight; process RSS, heap and event-loop delay (excess over the sampling interval). **No route serves it**; it
-describes every visitor, so a future dashboard belongs behind the owner-only Access hostname, never behind a
-ticket. It holds no name, filename, document or session id (tested).
+describes every visitor, so it belongs behind the owner, never behind a ticket. It holds no name, filename,
+document or session id (tested).
+
+The local ops dashboard (`ops/monitoring/`) reads it through an optional private channel, not a route: with
+`OPS_METRICS_SOCKET` set (unset by default; demo mode only), `server/ops/metrics-socket.js` serves
+`snapshot()` on a Unix socket file (`/run/qatool-ops/metrics.sock`, on the Compose volume `qatool-ops-metrics`;
+mode 0600, `GET /snapshot` and `GET /apayee` only, no TCP port, nothing the tunnel or Vercel can reach), after a
+guard that admits only numbers, booleans, null and timestamps. The `qatool-monitoring` service mounts that volume
+read-only and connects to the file directly; `docker compose exec -T qatool-backend node
+/app/server/ops/read-metrics.js` reads the same socket from the host. See `ops/monitoring/README.md` > "Job metrics".
 
 ## Configuration
 
@@ -381,7 +409,7 @@ gateway; sanitised errors and metadata-only logs; no direct model route; local a
 
 ## Remaining risks
 
-- **Real model behaviour is unmeasured** (run time, memory, parallel logins). `JOB_WORKERS` stays 1 until it is.
+- **Real model behaviour is unmeasured** (run time, memory, parallel logins). The default `JOB_WORKERS` is 1; staging deliberately runs 2 (with `APAYEE_MAX_CONCURRENT=2`) and must not go higher until it is measured.
 - **In-memory state** is lost on restart and not shared; a stolen ticket is a valid visitor for its life (30 min).
 - **A determined attacker with a Turnstile-solving service** can mint tickets; the global capacity (workers +
   pending), one live job per ticket and the mint backstop bound the damage to filling the queue.

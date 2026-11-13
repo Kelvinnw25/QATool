@@ -651,9 +651,11 @@ function SemanticReview({
     <div className="card">
       <div className="output-head">
         <h2>{issues.length === 0 ? 'Semantic review' : `Semantic review (${issues.length})`}</h2>
-        {(llm === 'failed' || llm === 'not_requested') && (
+        {/* A review that fails is an error shown below (the server refuses to hand back a
+            half-reviewed result), and this same button is the explicit way to try again. */}
+        {llm === 'not_requested' && (
           <button type="button" className="secondary" onClick={onRun} disabled={busy}>
-            {busy ? 'Reviewing...' : llm === 'failed' ? 'Retry AI review' : 'Run AI review'}
+            {busy ? 'Reviewing...' : error ? 'Retry AI review' : 'Run AI review'}
           </button>
         )}
       </div>
@@ -668,14 +670,6 @@ function SemanticReview({
           {status.discarded_issues > 0 &&
             ` ${status.discarded_issues} AI finding(s) discarded for citing ids that do not exist.`}
         </p>
-      )}
-
-      {llm === 'failed' && (
-        <div className="notice">
-          <strong>The AI review did not run.</strong> {failureText(status.error)} Only the rule
-          checks below were applied, so an empty list here is not a clean result. Retrying reviews
-          the same test cases; nothing is regenerated.
-        </div>
       )}
 
       {llm === 'not_requested' && (
@@ -732,21 +726,4 @@ function madeBy(source, parenthesised = false) {
   const named = source?.provider && source?.model ? `${source.provider}, ${source.model}` : null;
   if (parenthesised) return named ? ` (${named})` : '';
   return named ? `${source.provider} (${source.model})` : 'an AI model';
-}
-
-/**
- * Why the AI review did not run. The local tool's result carries the message; the demo's carries
- * only a code, so the wording lives here.
- */
-const REVIEW_FAILURE = {
-  LLM_RATE_LIMITED: 'The AI service is limiting requests. Wait, then retry.',
-  LLM_TIMEOUT: 'The AI service did not answer in time. Retry later.',
-  LLM_UNAVAILABLE: 'The AI service is temporarily unavailable. Retry later.',
-  LLM_MALFORMED_OUTPUT: 'The AI service returned a reply that could not be used.',
-  LLM_TRUNCATED: 'The AI service returned a reply that could not be used.',
-  LLM_REFUSED: 'The AI service declined the request.',
-};
-
-function failureText(error) {
-  return error?.message ?? REVIEW_FAILURE[error?.code] ?? 'The AI service could not be used.';
 }

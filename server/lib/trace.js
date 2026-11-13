@@ -55,6 +55,16 @@ export const LLM_ERROR_CATEGORIES = {
 };
 
 /**
+ * The code the upstream gateway (Apayee) gave a failure, kept on the error by the
+ * adapter. A fixed identifier such as INVALID_PROVIDER_RESPONSE; anything else is null.
+ * Log-only: it is never part of what a visitor is told.
+ */
+export function upstreamCodeOf(error) {
+  const code = error?.gatewayCode ?? error?.upstreamCode;
+  return typeof code === 'string' && /^[A-Z][A-Z_]{1,39}$/.test(code) ? code : null;
+}
+
+/**
  * Classifies a provider failure without inspecting its message.
  *
  * Driven by the error code the provider already assigns, so the taxonomy has
@@ -246,6 +256,8 @@ export function beginRun({ logger = null, route = null, id = newRunId() } = {}) 
  * worse at that than a sentence.
  */
 export function summarise(run, { status, reason = null, failSoft = null, stage = null }) {
+  // `status` is SUCCESS or FAILED. (A third, DEGRADED, once marked a run that fell back
+  // to a cheaper substitute; nothing substitutes any more, so nothing reports it.)
   const parts = [
     `RUN ${run.id}`,
     `status=${status}`,
@@ -259,10 +271,8 @@ export function summarise(run, { status, reason = null, failSoft = null, stage =
   if (status === 'SUCCESS') {
     for (const [name, value] of Object.entries(run.facts)) parts.push(`${name}=${value}`);
   } else {
-    // An explicit stage beats the current one. A degraded run carries on to the
-    // end, so run.stage would name where it finished rather than where it
-    // degraded - "stage=EXPORT | reason=503" reads as an export failure caused
-    // by a rate limit, which is not what happened.
+    // An explicit stage beats the current one; without one, the stage the run was in
+    // when it stopped.
     parts.push(`stage=${stage ?? run.stage}`);
     if (reason) parts.push(`reason=${reason}`);
     if (failSoft !== null) parts.push(`fail_soft=${failSoft}`);

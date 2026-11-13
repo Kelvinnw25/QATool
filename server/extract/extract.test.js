@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { AppError } from '../lib/errors.js';
-import { extractDocuments, WARNING_CODES } from './index.js';
+import { WARNING_CODES } from './index.js';
+import { extractLineByLine } from './fixtures/line-by-line.js';
 import { buildRequirements } from './requirements.js';
 import { reconstructCriteria } from './blocks.js';
 import { parsePdf } from './parsers/pdf.js';
@@ -146,7 +147,7 @@ test('document type is guessed from the filename', () => {
 /* -------------------------------------------------------- per format --- */
 
 test('DOCX extraction finds requirements and records the heading path', async () => {
-  const result = await extractDocuments([file('PRD Bulk Transfer.docx', prdDocx())]);
+  const result = await extractLineByLine([file('PRD Bulk Transfer.docx', prdDocx())]);
 
   assert.equal(result.documents[0].status, 'Extracted');
   assert.equal(result.documents[0].document_id, 'DOC-001');
@@ -167,7 +168,7 @@ test('DOCX extraction finds requirements and records the heading path', async ()
 });
 
 test('DOCX page numbers are never fabricated', async () => {
-  const result = await extractDocuments([file('PRD.docx', prdDocx())]);
+  const result = await extractLineByLine([file('PRD.docx', prdDocx())]);
 
   for (const requirement of result.requirements) {
     assert.equal(requirement.source_references[0].page, null);
@@ -185,7 +186,7 @@ test('DOCX page numbers are never fabricated', async () => {
 });
 
 test('DOCX table rows keep their column meaning', async () => {
-  const result = await extractDocuments([file('PRD.docx', prdDocx())]);
+  const result = await extractLineByLine([file('PRD.docx', prdDocx())]);
 
   const accountNumber = result.requirements.find((requirement) =>
     /Account Number/.test(requirement.description)
@@ -200,7 +201,7 @@ test('DOCX table rows keep their column meaning', async () => {
 });
 
 test('PDF extraction records real page numbers', async () => {
-  const result = await extractDocuments([file('RFC Limits.pdf', rfcPdf())]);
+  const result = await extractLineByLine([file('RFC Limits.pdf', rfcPdf())]);
 
   assert.equal(result.documents[0].page_count, 2);
   assert.ok(result.documents[0].extracted_char_count > 100);
@@ -219,7 +220,7 @@ test('PDF extraction records real page numbers', async () => {
 });
 
 test('a sentence wrapped across two PDF lines stays one requirement', async () => {
-  const result = await extractDocuments([file('RFC Payments.pdf', wrappedPdf())]);
+  const result = await extractLineByLine([file('RFC Payments.pdf', wrappedPdf())]);
 
   const amount = result.requirements.find((requirement) =>
     /zero or negative/.test(requirement.description)
@@ -235,7 +236,7 @@ test('a sentence wrapped across two PDF lines stays one requirement', async () =
 });
 
 test('a wrapped continuation is joined even when it starts with a capital', async () => {
-  const result = await extractDocuments([file('RFC Payments.pdf', wrappedPdf())]);
+  const result = await extractLineByLine([file('RFC Payments.pdf', wrappedPdf())]);
 
   const limit = result.requirements.find((requirement) =>
     /maximum single payment/.test(requirement.description)
@@ -250,7 +251,7 @@ test('a wrapped continuation is joined even when it starts with a capital', asyn
 });
 
 test('a wrapped line is never treated as a heading', async () => {
-  const result = await extractDocuments([file('RFC Payments.pdf', wrappedPdf())]);
+  const result = await extractLineByLine([file('RFC Payments.pdf', wrappedPdf())]);
 
   const sections = result.requirements.flatMap((requirement) =>
     requirement.source_references.map((reference) => reference.section)
@@ -266,7 +267,7 @@ test('a wrapped line is never treated as a heading', async () => {
 });
 
 test('real headings, numbered and titled, are still recognised', async () => {
-  const result = await extractDocuments([file('RFC Payments.pdf', wrappedPdf())]);
+  const result = await extractLineByLine([file('RFC Payments.pdf', wrappedPdf())]);
 
   const sections = new Set(
     result.requirements.flatMap((requirement) =>
@@ -284,7 +285,7 @@ test('real headings, numbered and titled, are still recognised', async () => {
 });
 
 test('a documented error code survives extraction', async () => {
-  const result = await extractDocuments([file('RFC Payments.pdf', wrappedPdf())]);
+  const result = await extractLineByLine([file('RFC Payments.pdf', wrappedPdf())]);
 
   assert.ok(
     result.requirements.some((requirement) => /ERR_INVALID_AMOUNT/.test(requirement.description)),
@@ -293,7 +294,7 @@ test('a documented error code survives extraction', async () => {
 });
 
 test('a short fragment naming a documented code is kept and flagged, not dropped', async () => {
-  const result = await extractDocuments([
+  const result = await extractLineByLine([
     file(
       'RFC Codes.pdf',
       buildPdf([['Error Codes', 'The API rejects malformed requests.', 'ERR_INVALID_AMOUNT.']])
@@ -320,7 +321,7 @@ test('a short fragment naming a documented code is kept and flagged, not dropped
 });
 
 test('XLSX extraction records sheet and cell range', async () => {
-  const result = await extractDocuments([file('Field Matrix.xlsx', matrixXlsx())]);
+  const result = await extractLineByLine([file('Field Matrix.xlsx', matrixXlsx())]);
 
   const bic = result.requirements.find((requirement) => /BIC Code/.test(requirement.description));
   assert.ok(bic, 'the spreadsheet row should become a requirement');
@@ -333,7 +334,7 @@ test('XLSX extraction records sheet and cell range', async () => {
 /* ----------------------------------------------------------- filtering -- */
 
 test('approval and revision-history boilerplate is filtered out', async () => {
-  const result = await extractDocuments([file('PRD.docx', prdDocx())]);
+  const result = await extractLineByLine([file('PRD.docx', prdDocx())]);
   const text = JSON.stringify(result.requirements);
 
   assert.ok(!/Adrian Logito/.test(text), 'signature table must not become a requirement');
@@ -343,7 +344,7 @@ test('approval and revision-history boilerplate is filtered out', async () => {
 });
 
 test('filtering does not swallow real requirements', async () => {
-  const result = await extractDocuments([file('PRD.docx', prdDocx())]);
+  const result = await extractLineByLine([file('PRD.docx', prdDocx())]);
 
   // Everything after the boilerplate must still be there.
   for (const expected of [/Suspended participant/, /BIC code/, /Account Number/]) {
@@ -359,7 +360,7 @@ test('filtering does not swallow real requirements', async () => {
 test('an image-only document produces a low-text warning, not invented content', async () => {
   // A PDF whose pages carry no text at all - the shape of a scanned RFC.
   const imageOnly = buildPdf([[], []]);
-  const result = await extractDocuments([
+  const result = await extractLineByLine([
     file('Scanned RFC.pdf', imageOnly),
     file('PRD.docx', prdDocx()),
   ]);
@@ -388,7 +389,7 @@ test('an image-only document produces a low-text warning, not invented content',
 
 test('documents that yield nothing produce a controlled error, never empty success', async () => {
   await assert.rejects(
-    () => extractDocuments([file('Scanned.pdf', buildPdf([[]]))]),
+    () => extractLineByLine([file('Scanned.pdf', buildPdf([[]]))]),
     (error) => {
       assert.ok(error instanceof AppError);
       assert.equal(error.code, 'NO_REQUIREMENTS_EXTRACTED');
@@ -401,7 +402,7 @@ test('documents that yield nothing produce a controlled error, never empty succe
 });
 
 test('one unreadable document does not lose the rest of the batch', async () => {
-  const result = await extractDocuments([
+  const result = await extractLineByLine([
     file('notes.txt', Buffer.from('this is not a document')),
     file('PRD.docx', prdDocx()),
   ]);
@@ -418,7 +419,7 @@ test('one unreadable document does not lose the rest of the batch', async () => 
 test('a batch where every document fails raises an error', async () => {
   await assert.rejects(
     () =>
-      extractDocuments([
+      extractLineByLine([
         file('a.txt', Buffer.from('nope')),
         file('b.txt', Buffer.from('also nope')),
       ]),
@@ -428,13 +429,13 @@ test('a batch where every document fails raises an error', async () => {
 
 test('an empty upload is rejected', async () => {
   await assert.rejects(
-    () => extractDocuments([]),
+    () => extractLineByLine([]),
     (error) => error instanceof AppError && error.code === 'NO_DOCUMENTS'
   );
 });
 
 test('ambiguous wording is flagged rather than resolved', async () => {
-  const result = await extractDocuments([file('PRD.docx', prdDocx())]);
+  const result = await extractLineByLine([file('PRD.docx', prdDocx())]);
 
   const creditor = result.requirements.find((requirement) =>
     /Creditor ID/.test(requirement.description)
@@ -452,7 +453,7 @@ test('ambiguous wording is flagged rather than resolved', async () => {
 
 test('a cross-document conflict preserves both sides and picks no winner', async () => {
   // The PRD says the timeout is 30 seconds; the RFC says 60.
-  const result = await extractDocuments([file('PRD.docx', prdDocx()), file('RFC.pdf', rfcPdf())]);
+  const result = await extractLineByLine([file('PRD.docx', prdDocx()), file('RFC.pdf', rfcPdf())]);
 
   const conflicted = result.requirements.filter((requirement) => requirement.conflicts.length > 0);
   assert.ok(conflicted.length >= 2, 'both sides of the conflict must be marked');
@@ -471,14 +472,14 @@ test('a cross-document conflict preserves both sides and picks no winner', async
 });
 
 test('a single document does not conflict with itself', async () => {
-  const result = await extractDocuments([file('PRD.docx', prdDocx())]);
+  const result = await extractLineByLine([file('PRD.docx', prdDocx())]);
   assert.ok(result.requirements.every((requirement) => requirement.conflicts.length === 0));
 });
 
-/* ------------------------------------------------------ fallback dedup -- */
+/* ------------------------------------------------------ line-by-line dedup -- */
 
 /**
- * The deterministic fallback used to drop any block whose text it had already
+ * Line-by-line selection used to drop any block whose text it had already
  * seen in the document. A PRD that writes one scenario per section repeats its
  * branch sentences word for word, so every scenario after the first lost them:
  * 29 branch sentences of the sanitized Routing PRD, including the INACTIVE
@@ -496,7 +497,7 @@ const paragraph = (text, page, section) => ({
   table: null,
 });
 const heading = (text, page) => ({ ...paragraph(text, page, text), kind: 'heading', level: 1 });
-const fallbackOf = (blocks) => buildRequirements([{ documentId: 'DOC-001', blocks }]);
+const lineByLineOf = (blocks) => buildRequirements([{ documentId: 'DOC-001', blocks }]);
 
 test('the same branch sentence under two scenarios is two requirements', async () => {
   const pdf = buildPdf([
@@ -512,8 +513,7 @@ test('the same branch sentence under two scenarios is two requirements', async (
     ],
   ]);
 
-  const result = await extractDocuments([file('Routing.pdf', pdf)]);
-  assert.equal(result.structuring.mode, 'fallback');
+  const result = await extractLineByLine([file('Routing.pdf', pdf)]);
   assert.deepEqual(
     result.requirements.map(({ description, source_references: [ref] }) => [
       ref.section,
@@ -547,7 +547,7 @@ test('two scenarios under headings that read the same keep their own copies', ()
   // scenario's branch would still be merged into the first.
   const branch =
     'IF ACTIVE but the Switching is null , then use and send the transaction to DEFAULT_SWITCHING of that Bank';
-  const { requirements, skipped } = fallbackOf([
+  const { requirements, skipped } = lineByLineOf([
     heading('SYS', 6),
     paragraph(branch, 6, 'SYS'),
     heading('SYS', 7),
@@ -567,7 +567,7 @@ test('identical text inside one section is still one requirement', () => {
   // stays case-insensitive.
   const header = 'Bank internal: this specification will be reviewed every quarter';
   const rule = 'Settlement batches must be confirmed by the host before release.';
-  const { requirements, skipped } = fallbackOf([
+  const { requirements, skipped } = lineByLineOf([
     heading('Settlement Rules', 1),
     paragraph(header, 1, 'Settlement Rules'),
     paragraph(rule, 1, 'Settlement Rules'),
@@ -593,7 +593,7 @@ test('text with no heading, section or sheet to place it is never merged', () =>
   // Nothing says the two are one statement, and a repeated requirement is
   // visible to QA where a merged one is not.
   const rule = 'The transaction must be rejected when the account is dormant.';
-  const { requirements } = fallbackOf([paragraph(rule, 1, null), paragraph(rule, 2, null)]);
+  const { requirements } = lineByLineOf([paragraph(rule, 1, null), paragraph(rule, 2, null)]);
 
   assert.deepEqual(
     requirements.map((requirement) => requirement.source_references[0].page),
@@ -612,7 +612,7 @@ test('identical spreadsheet rows merge within a sheet, not across sheets', () =>
     cell,
     table: { headers: ['Field', 'Rule'], cells: ['BIC Code', 'Mandatory, 8 or 11 characters'] },
   });
-  const { requirements } = fallbackOf([
+  const { requirements } = lineByLineOf([
     row('Field Rules', 'A2:B2'),
     row('Field Rules', 'A3:B3'),
     row('Archive', 'A2:B2'),
@@ -624,12 +624,12 @@ test('identical spreadsheet rows merge within a sheet, not across sheets', () =>
   );
 });
 
-test('the sanitized Routing PRD keeps every scenario branch on the fallback path', async () => {
+test('the sanitized Routing PRD keeps every scenario branch on the line-by-line path', async () => {
   const pdf = readFileSync(
     new URL('../../fixtures/prd/PRD_Transaction_Routing_Sanitized.pdf', import.meta.url)
   );
   const { blocks } = await parsePdf(pdf, 'DOC-001');
-  const { requirements } = fallbackOf(blocks);
+  const { requirements } = lineByLineOf(blocks);
 
   // Every IF branch that is a requirement at all is one once per occurrence.
   // (A fragment such as "IF ACTIVE, then :" is filtered as too short, which is
@@ -721,8 +721,8 @@ test('a cell continued at the top of a page stays in the scenario it started in'
     ],
   ]);
 
-  // The fallback keeps both INACTIVE branches: one per heading occurrence.
-  const { requirements } = fallbackOf(blocks);
+  // Line-by-line selection keeps both INACTIVE branches: one per heading occurrence.
+  const { requirements } = lineByLineOf(blocks);
   assert.deepEqual(
     requirements
       .filter((requirement) => requirement.description === inactive)
@@ -767,7 +767,7 @@ test('something new at the top of a page gets no section rather than the last on
     ['paragraph', 2, section, 'A declined card payment must be reversed within one day.'],
   ]);
 
-  const { requirements } = fallbackOf(blocks);
+  const { requirements } = lineByLineOf(blocks);
   assert.deepEqual(
     requirements
       .filter((requirement) => requirement.description === lead)
@@ -845,8 +845,8 @@ test('the Routing PRD files the Cross Border Payment INACTIVE branch under its o
   assert.notEqual(branch.section, '3. QRIS TUNTAS (Transfer, Setor, Tarik) as Issuer');
   assert.equal(branch.section, 'Check the Switching of QRIS MPM Cross');
 
-  // And the fallback still keeps it as its own requirement, with that section.
-  const { requirements } = fallbackOf(blocks);
+  // And line-by-line selection still keeps it as its own requirement, with that section.
+  const { requirements } = lineByLineOf(blocks);
   assert.deepEqual(
     requirements
       .filter((requirement) =>
@@ -1009,8 +1009,8 @@ test('a new scenario after a page turn starts its own section, or none if unreco
     ]
   );
 
-  // The fallback keeps all three identical lead-ins: one per heading occurrence.
-  const { requirements } = fallbackOf(blocks);
+  // Line-by-line selection keeps all three identical lead-ins: one per heading occurrence.
+  const { requirements } = lineByLineOf(blocks);
   assert.deepEqual(
     requirements
       .filter((requirement) => requirement.description === lead)
@@ -1117,9 +1117,9 @@ test('the Routing PRD files the tops of pages 4 and 6 under the scenario they co
     'WHEN SYS identifies the Issuer Bank Code'
   );
 
-  // The fallback keeps both scenarios' branches as requirements of their own -
+  // Line-by-line selection keeps both scenarios' branches as requirements of their own -
   // the same sentences, one set per scenario - each with its scenario.
-  const { requirements } = fallbackOf(blocks);
+  const { requirements } = lineByLineOf(blocks);
   const onPage = (page) =>
     requirements
       .filter(({ source_references: [ref] }) => ref.page === page)
@@ -1195,7 +1195,7 @@ test('a scenario name and the GIVEN beside it are read as two cells', async () =
   ]);
 
   // Both scenarios keep their own lead-in: identical words, two scenarios.
-  const { requirements } = fallbackOf(blocks);
+  const { requirements } = lineByLineOf(blocks);
   assert.equal(requirements.filter(({ description }) => description === lead).length, 2);
 });
 
@@ -1405,8 +1405,8 @@ test('the Routing PRD reads every scenario name apart from its acceptance criter
     ]
   );
 
-  // The fallback's requirements are unchanged: same text, order and sections.
-  const { requirements } = fallbackOf(blocks);
+  // The line-by-line requirements are unchanged: same text, order and sections.
+  const { requirements } = lineByLineOf(blocks);
   assert.equal(requirements.length, 53);
 });
 
@@ -1485,7 +1485,7 @@ test('the Settlement PRD reads "Activate the Export Button" as name, GIVEN, WHEN
     ],
   });
 
-  const { requirements } = fallbackOf(blocks);
+  const { requirements } = lineByLineOf(blocks);
   assert.deepEqual(
     requirements
       .filter(
@@ -1664,8 +1664,8 @@ test('the Routing PRD reads its actor labels back into the scenarios on pages 6 
 test('requirement ids are sequential and deterministic across a batch', async () => {
   const files = [file('PRD.docx', prdDocx()), file('RFC.pdf', rfcPdf())];
 
-  const first = await extractDocuments(files);
-  const second = await extractDocuments(files);
+  const first = await extractLineByLine(files);
+  const second = await extractLineByLine(files);
 
   const ids = first.requirements.map((requirement) => requirement.requirement_id);
   assert.deepEqual(
@@ -1685,7 +1685,7 @@ test('requirement ids are sequential and deterministic across a batch', async ()
 });
 
 test('every extracted requirement and document satisfies the canonical schema', async () => {
-  const result = await extractDocuments([
+  const result = await extractLineByLine([
     file('PRD.docx', prdDocx()),
     file('RFC.pdf', rfcPdf()),
     file('Matrix.xlsx', matrixXlsx()),
@@ -1709,7 +1709,7 @@ test('every extracted requirement and document satisfies the canonical schema', 
 });
 
 test('every category is one of the nine permitted values', async () => {
-  const result = await extractDocuments([
+  const result = await extractLineByLine([
     file('PRD.docx', prdDocx()),
     file('RFC.pdf', rfcPdf()),
     file('Matrix.xlsx', matrixXlsx()),
@@ -1724,7 +1724,7 @@ test('every category is one of the nine permitted values', async () => {
 });
 
 test('categorisation follows the documented precedence', async () => {
-  const result = await extractDocuments([
+  const result = await extractLineByLine([
     file('PRD.docx', prdDocx()),
     file('Matrix.xlsx', matrixXlsx()),
   ]);
@@ -1750,7 +1750,7 @@ test('Indonesian requirement wording is recognised', async () => {
     { text: 'Jumlah maksimal transaksi dalam satu batch adalah 50 transaksi.' },
   ]);
 
-  const result = await extractDocuments([file('PRD Indonesia.docx', indonesian)]);
+  const result = await extractLineByLine([file('PRD Indonesia.docx', indonesian)]);
   assert.equal(result.requirements.length, 3, 'all three Indonesian statements should be found');
   assert.equal(
     result.requirements.find((requirement) => /ditolak/.test(requirement.description)).category,
@@ -1764,7 +1764,7 @@ test('extraction writes nothing to disk', async () => {
   const { readdirSync } = await import('node:fs');
   const before = readdirSync(process.cwd()).sort();
 
-  await extractDocuments([file('PRD.docx', prdDocx()), file('RFC.pdf', rfcPdf())]);
+  await extractLineByLine([file('PRD.docx', prdDocx()), file('RFC.pdf', rfcPdf())]);
 
   assert.deepEqual(readdirSync(process.cwd()).sort(), before);
 });

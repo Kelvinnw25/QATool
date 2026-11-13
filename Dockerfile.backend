@@ -10,6 +10,11 @@ FROM node:${NODE_VERSION}-bookworm-slim
 
 WORKDIR /app
 RUN chown node:node /app
+# Where the optional private metrics socket lives (server/ops/, OPS_METRICS_SOCKET). A Compose named
+# volume mounted here starts with this directory's owner and mode, so the `node` user can create the
+# socket and nobody else can even enter. The socket itself is 0600. Nothing is written here unless
+# OPS_METRICS_SOCKET is set. See compose.yaml (qatool-ops-metrics) and ops/monitoring/README.md.
+RUN mkdir -p /run/qatool-ops && chown node:node /run/qatool-ops && chmod 0700 /run/qatool-ops
 USER node
 
 # Production dependencies from the lockfile only; npm ci never edits it. web/package.json is

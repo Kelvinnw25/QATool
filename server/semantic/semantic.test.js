@@ -380,50 +380,58 @@ describe('the reviewer is itself checked', () => {
     assert.equal(status.discarded_issues, 3);
   });
 
-  it('rejects malformed output and keeps the deterministic findings', async () => {
+  it('throws on malformed output instead of returning the rule findings alone', async () => {
     const canonical = project();
     caseById(canonical, 'TC-004').expected_result = 'Batch ditolak dengan pesan error.';
 
-    const { issues, status } = await reviewSemantics(canonical, {
-      useLlm: true,
-      provider: reviewer([llmIssue({ category: 'vibes', testcase_id: 'TC-001' })]),
-    });
-
-    assert.equal(status.llm, 'failed');
-    assert.equal(status.error.code, 'LLM_MALFORMED_OUTPUT');
-    assert.ok(find(issues, 'suspicious_edge_polarity', 'TC-004'), 'heuristics still stand');
-    assert.ok(!issues.some((issue) => issue.category === 'vibes'));
+    await assert.rejects(
+      reviewSemantics(canonical, {
+        useLlm: true,
+        provider: reviewer([llmIssue({ category: 'vibes', testcase_id: 'TC-001' })]),
+      }),
+      (error) => error.code === 'LLM_MALFORMED_OUTPUT'
+    );
   });
 
-  it('rejects a reply that is not the agreed shape at all', async () => {
-    const { status } = await reviewSemantics(project(), {
-      useLlm: true,
-      provider: new MockProvider({ responses: { findings: 'none' } }),
-    });
-
-    assert.equal(status.llm, 'failed');
-    assert.equal(status.error.code, 'LLM_MALFORMED_OUTPUT');
+  it('throws on a reply that is not the agreed shape at all', async () => {
+    await assert.rejects(
+      reviewSemantics(project(), {
+        useLlm: true,
+        provider: new MockProvider({ responses: { findings: 'none' } }),
+      }),
+      (error) => error.code === 'LLM_MALFORMED_OUTPUT'
+    );
   });
 });
 
 describe('provider failure', () => {
   for (const code of ['RATE_LIMITED', 'UNAVAILABLE', 'TIMEOUT', 'AUTH_FAILED']) {
-    it(`reports ${code} without throwing, and keeps the deterministic findings`, async () => {
+    it(`throws ${code}, with no partial review handed back`, async () => {
       const canonical = project();
       caseById(canonical, 'TC-001').expected_result = 'Transaksi ditolak oleh sistem.';
+      const failure = new LlmError(LLM_ERRORS[code], `${code} happened.`, 502);
 
-      const { issues, status } = await reviewSemantics(canonical, {
-        useLlm: true,
-        provider: new MockProvider({
-          failWith: new LlmError(LLM_ERRORS[code], `${code} happened.`, 502),
+      await assert.rejects(
+        reviewSemantics(canonical, {
+          useLlm: true,
+          provider: new MockProvider({ failWith: failure }),
         }),
-      });
-
-      assert.equal(status.llm, 'failed');
-      assert.equal(status.error.code, LLM_ERRORS[code]);
-      assert.ok(find(issues, 'suspicious_case_type', 'TC-001'));
+        (error) => error === failure
+      );
     });
   }
+
+  it('still runs the rule checks alone when no AI review is asked for', async () => {
+    const canonical = project();
+    caseById(canonical, 'TC-001').expected_result = 'Transaksi ditolak oleh sistem.';
+    const provider = new MockProvider({ failWith: new LlmError(LLM_ERRORS.UNAVAILABLE, 'x', 503) });
+
+    const { issues, status } = await reviewSemantics(canonical, { useLlm: false, provider });
+
+    assert.equal(provider.calls.length, 0, 'the model is not touched');
+    assert.equal(status.llm, 'not_requested', 'and the status says the review did not run');
+    assert.ok(find(issues, 'suspicious_case_type', 'TC-001'));
+  });
 
   it('does not hide a programming error as a failed review', async () => {
     const broken = new MockProvider({ failWith: new TypeError('undefined is not a function') });

@@ -10,7 +10,6 @@ import { inspectWorkbook } from './export/inspect.js';
 import { MockProvider } from './llm/mock.js';
 import { LlmError, LLM_ERRORS } from './llm/provider.js';
 import { buildDocx } from './extract/fixtures/build.js';
-import { STRUCTURE_WARNINGS } from './structure/validate.js';
 import { summarise, trace, withRun } from './lib/trace.js';
 
 /**
@@ -124,7 +123,7 @@ const REVIEW_REPLY = {
  * Runs the whole thing. The structuring provider answers from the block ids the
  * parser produced, which is why it is a function rather than a fixed object.
  */
-async function runPipeline({ structuringProvider } = {}) {
+async function runPipeline({ structuringProvider, generationProvider, reviewProvider } = {}) {
   let capturedBlockIds = [];
 
   const structuring =
@@ -138,8 +137,8 @@ async function runPipeline({ structuringProvider } = {}) {
       },
     });
 
-  const generation = new MockProvider({ responses: generationReply() });
-  const review = new MockProvider({ responses: REVIEW_REPLY });
+  const generation = generationProvider ?? new MockProvider({ responses: generationReply() });
+  const review = reviewProvider ?? new MockProvider({ responses: REVIEW_REPLY });
 
   const extracted = await extractDocuments([uploadedDocument()], { provider: structuring });
 
@@ -283,28 +282,69 @@ describe('the three-call pipeline', () => {
   });
 
   /**
-   * Fail-soft, at the top of the pipeline. Losing the structuring call costs
-   * grouping quality; it does not cost the workflow, and nothing is invented to
-   * fill the gap.
+   * Fail-fast, at the top of the pipeline. Losing the structuring call loses the workflow:
+   * nothing is extracted in its place, and generation and review are never asked.
    */
-  it('still completes when Gemini #1 is unavailable', async () => {
+  it('stops when Gemini #1 is unavailable, and never reaches generation or review', async () => {
     const down = new MockProvider({
       failWith: new LlmError(LLM_ERRORS.UNAVAILABLE, 'Provider is down.', 503),
     });
+    const generation = new MockProvider({ responses: generationReply() });
+    const review = new MockProvider({ responses: REVIEW_REPLY });
 
-    const { extracted, canonical, calls } = await runPipeline({ structuringProvider: down });
-
-    assert.equal(extracted.structuring.mode, 'fallback');
-    assert.ok(extracted.requirements.length > 0, 'deterministic extraction carried it');
-    assert.deepEqual(extracted.test_points, [], 'no test points were invented');
-    assert.ok(
-      extracted.warnings.some(
-        (warning) => warning.code === STRUCTURE_WARNINGS.AI_REQUIREMENT_STRUCTURING_FAILED
-      ),
-      'and the loss is announced'
+    await assert.rejects(
+      runPipeline({
+        structuringProvider: down,
+        generationProvider: generation,
+        reviewProvider: review,
+      }),
+      (error) => error.code === LLM_ERRORS.UNAVAILABLE
     );
 
-    assert.equal(canonical.test_cases.length, 1, 'generation and review still ran');
+    assert.equal(down.calls.length, 1, 'asked once, not retried');
+    assert.equal(generation.calls.length, 0, 'generation never ran');
+    assert.equal(review.calls.length, 0, 'review never ran');
+  });
+
+  it('stops when generation fails, and never reaches the review', async () => {
+    const generation = new MockProvider({
+      failWith: new LlmError(LLM_ERRORS.TIMEOUT, 'Too slow.', 504),
+    });
+    const review = new MockProvider({ responses: REVIEW_REPLY });
+
+    await assert.rejects(
+      runPipeline({ generationProvider: generation, reviewProvider: review }),
+      (error) => error.code === LLM_ERRORS.TIMEOUT
+    );
+
+    assert.equal(generation.calls.length, 1);
+    assert.equal(review.calls.length, 0, 'a project that was never generated is never reviewed');
+  });
+
+  it('returns no test case when the generation reply is unusable', async () => {
+    const generation = new MockProvider({ responses: { test_cases: 'none' } });
+
+    await assert.rejects(
+      runPipeline({ generationProvider: generation }),
+      (error) => error.code === 'LLM_MALFORMED_OUTPUT'
+    );
+  });
+
+  it('fails the review, rather than finishing with the rule findings alone', async () => {
+    const review = new MockProvider({
+      failWith: new LlmError(LLM_ERRORS.UNAVAILABLE, 'Review down.', 503),
+    });
+
+    await assert.rejects(
+      runPipeline({ reviewProvider: review }),
+      (error) => error.code === LLM_ERRORS.UNAVAILABLE
+    );
+  });
+
+  it('calls only the providers it was given', async () => {
+    const { calls } = await runPipeline();
+
+    assert.equal(calls.structuring.calls.length, 1);
     assert.equal(calls.generation.calls.length, 1);
     assert.equal(calls.review.calls.length, 1);
   });
@@ -412,41 +452,36 @@ describe('run tracing across the pipeline', () => {
     assert.equal(summary.split('RUN ').length - 1, 1, 'exactly one summary line');
   });
 
-  it('traces the Gemini #1 fallback as degraded, with a category, and continues', async () => {
+  it('traces a Gemini #1 failure as a failure, with a category, and stops', async () => {
     const logger = recorder();
-    let summary;
+    const generation = new MockProvider({ responses: generationReply() });
 
-    const { extracted } = await withRun({ logger }, async (run) => {
-      const result = await runPipeline({
-        structuringProvider: new MockProvider({
-          failWith: new LlmError(LLM_ERRORS.UNAVAILABLE, 'Gemini is overloaded.', 503),
+    await withRun({ logger }, async () => {
+      await assert.rejects(
+        runPipeline({
+          structuringProvider: new MockProvider({
+            failWith: new LlmError(LLM_ERRORS.UNAVAILABLE, 'Gemini is overloaded.', 503),
+          }),
+          generationProvider: generation,
         }),
-      });
-
-      summary = summarise(run, {
-        status: run.facts.fallback_used ? 'DEGRADED' : 'SUCCESS',
-        reason: run.facts.fallback_reason,
-        failSoft: true,
-      });
-      return result;
+        (error) => error.code === LLM_ERRORS.UNAVAILABLE
+      );
     });
 
     const failure = logger.lines.find((line) => line.event === 'gemini_1_failed');
     assert.ok(failure, 'the failure itself is traced');
     assert.equal(failure.error_category, '503', 'and classified as refused capacity');
-    assert.equal(failure.fail_soft, true);
+    assert.equal(failure.fail_soft, false);
+    assert.equal(failure.fallback_used, false);
 
-    const fallback = logger.lines.find((line) => line.event === 'deterministic_fallback_used');
-    assert.ok(fallback, 'the fallback is an explicit event, not an absence');
-    assert.equal(fallback.fallback_used, true);
-
-    // Fail-soft, unchanged: the run still produced requirements and reached
-    // the later stages.
-    assert.ok(extracted.requirements.length > 0);
-    assert.equal(extracted.structuring.mode, 'fallback');
-    assert.match(summary, /status=DEGRADED/);
-    assert.match(summary, /reason=503/);
-    assert.ok(eventsOf(logger).includes('gemini_2_completed'), 'generation still ran');
+    // There is no fallback event any more, and nothing after the failure ran.
+    assert.equal(
+      logger.lines.some((line) => line.event === 'deterministic_fallback_used'),
+      false
+    );
+    assert.equal(generation.calls.length, 0);
+    assert.ok(!eventsOf(logger).includes('gemini_2_started'), 'generation never started');
+    assert.ok(!eventsOf(logger).includes('extraction_completed'), 'extraction never completed');
   });
 
   it('traces a Gemini #2 failure without swallowing it', async () => {
@@ -486,6 +521,71 @@ describe('run tracing across the pipeline', () => {
     assert.equal(traced.fallback_used, false);
   });
 
+  it('keeps the gateway code on the Gemini #2 failure event, and nothing invented when there is none', async () => {
+    const cases = [
+      ['INVALID_PROVIDER_RESPONSE', 'INVALID_PROVIDER_RESPONSE'],
+      ['PROVIDER_TIMEOUT', 'PROVIDER_TIMEOUT'],
+      [undefined, null],
+      ['not a code, free text with PRD-CONTENT-CANARY', null],
+    ];
+
+    for (const [upstreamCode, expected] of cases) {
+      const logger = recorder();
+      const failure = new LlmError(LLM_ERRORS.MALFORMED_OUTPUT, 'The reply was unusable.', 502);
+      if (upstreamCode) failure.gatewayCode = upstreamCode;
+
+      await withRun({ logger }, async () => {
+        const extracted = await extractDocuments([uploadedDocument()], {
+          provider: new MockProvider({
+            responses: (request) =>
+              structuringReplyFor(
+                [...request.prompt.matchAll(/"source_block_id": "([^"]+)"/g)].map((m) => m[1])
+              ),
+          }),
+        });
+
+        await assert.rejects(
+          generateFromRequirements(
+            {
+              project: { project_name: 'Settlement Routing' },
+              documents: extracted.documents,
+              requirements: extracted.requirements,
+              test_cases: [],
+            },
+            {
+              provider: new MockProvider({ failWith: failure }),
+              testPoints: extracted.test_points,
+            }
+          ),
+          (error) => error === failure
+        );
+      });
+
+      const traced = logger.lines.find((line) => line.event === 'gemini_2_failed');
+      assert.equal(traced.upstream_code, expected, String(upstreamCode));
+      assert.equal(traced.error_code, LLM_ERRORS.MALFORMED_OUTPUT, 'the QATOOL code is unchanged');
+      assert.ok(!JSON.stringify(logger.lines).includes('PRD-CONTENT-CANARY'));
+    }
+  });
+
+  it('keeps the gateway code on the Gemini #1 failure event', async () => {
+    const logger = recorder();
+    const failure = new LlmError(LLM_ERRORS.MALFORMED_OUTPUT, 'The reply was unusable.', 502);
+    failure.gatewayCode = 'INVALID_PROVIDER_RESPONSE';
+
+    await withRun({ logger }, async () => {
+      await assert.rejects(
+        runPipeline({ structuringProvider: new MockProvider({ failWith: failure }) }),
+        (error) => error === failure
+      );
+    });
+
+    const traced = logger.lines.find((line) => line.event === 'gemini_1_failed');
+    assert.ok(traced);
+    assert.equal(traced.upstream_code, 'INVALID_PROVIDER_RESPONSE');
+    assert.equal(traced.error_code, LLM_ERRORS.MALFORMED_OUTPUT);
+  });
+
   it('never emits a prompt, a reply or document text', async () => {
     const logger = recorder();
 
@@ -509,5 +609,15 @@ describe('run tracing across the pipeline', () => {
     const geminiStart = logger.lines.find((line) => line.event === 'gemini_1_started');
     assert.equal(typeof geminiStart.prompt_chars, 'number', 'size, not content');
     assert.ok(!('prompt' in geminiStart));
+  });
+});
+
+describe('each model call says which step it is', () => {
+  it('labels structuring, generation and review for the gateway log', async () => {
+    const { calls } = await runPipeline();
+
+    assert.equal(calls.structuring.calls[0].stage, 'structure');
+    assert.equal(calls.generation.calls[0].stage, 'generate');
+    assert.equal(calls.review.calls[0].stage, 'review');
   });
 });

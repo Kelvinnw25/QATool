@@ -368,10 +368,13 @@ describe('results that carry no provider', () => {
     assert.match(html, /Checked by rules and by an AI review\./);
   });
 
-  it('explains a failed review from its code, since the demo sends no message', () => {
-    const html = render(validation({ llm: 'failed', error: { code: 'LLM_TIMEOUT' } }));
-    assert.match(html, /The AI review did not run\./);
-    assert.match(html, /did not answer in time/);
+  it('offers the AI review as an explicit action when it has not run, and never shows a half-result as done', () => {
+    // A review that fails is no longer a result with `llm: "failed"`: the server refuses it as an
+    // error (the job fails in its validate phase), so the page has no "failed review" state to draw.
+    const html = render(validation({ llm: 'not_requested', error: null }));
+    assert.match(html, /Run AI review/);
+    assert.match(html, /The AI review has not been run for this workflow\./);
+    assert.doesNotMatch(html, /Checked by rules and by an AI review/);
     assert.doesNotMatch(html, /undefined/);
   });
 });

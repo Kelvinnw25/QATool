@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>QATOOL Ops Monitor</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span id="overall-dot" class="dot dot-unknown" aria-hidden="true"></span>
+        <div>
+          <h1>QATOOL Ops Monitor</h1>
+          <p id="overall-text" class="muted">Waiting for the first poll…</p>
+        </div>
+      </div>
+      <div class="controls">
+        <span id="refresh-indicator" class="muted" aria-live="polite">–</span>
+        <button id="refresh" type="button">Refresh now</button>
+        <a id="export" class="button" href="/api/snapshot" download>Export snapshot</a>
+      </div>
+    </header>
+
+    <div id="banner" class="banner" hidden role="alert"></div>
+
+    <main>
+      <section aria-labelledby="h-overview">
+        <h2 id="h-overview">Overview</h2>
+        <div id="components" class="grid grid-5"></div>
+        <p id="overview-meta" class="muted small"></p>
+      </section>
+
+      <section aria-labelledby="h-jobs">
+        <h2 id="h-jobs">Jobs <span class="tag">since backend start</span></h2>
+        <div id="jobs-unavailable" class="notice" hidden></div>
+        <div id="jobs-body">
+          <div id="job-kpis" class="grid grid-6"></div>
+          <div class="panel">
+            <h3>Lifecycle</h3>
+            <div id="lifecycle" class="lifecycle"></div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-capacity">
+        <h2 id="h-capacity">Queue &amp; capacity</h2>
+        <div class="grid grid-2">
+          <div class="panel">
+            <h3>QATOOL job workers</h3>
+            <div id="cap-qatool"></div>
+          </div>
+          <div class="panel">
+            <h3>Apayee gateway</h3>
+            <div id="cap-apayee"></div>
+          </div>
+        </div>
+        <div id="warnings" class="warnings"></div>
+        <div class="panel">
+          <h3>Last <span id="history-span">–</span></h3>
+          <div id="spark-grid" class="grid grid-3"></div>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-infra">
+        <h2 id="h-infra">Infrastructure</h2>
+        <div id="infra-note" class="notice" hidden></div>
+        <div id="backend-process" class="notice" hidden></div>
+        <div class="table-wrap">
+          <table id="containers">
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>State</th>
+                <th>Health</th>
+                <th>CPU</th>
+                <th>Memory</th>
+                <th>Restarts</th>
+                <th>Uptime</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-activity">
+        <h2 id="h-activity">Activity &amp; errors</h2>
+        <div class="grid grid-2-1">
+          <div class="panel">
+            <h3>Recent events</h3>
+            <ul id="events" class="events"></ul>
+          </div>
+          <div class="panel">
+            <h3>Failure categories <span class="tag">since backend start</span></h3>
+            <div id="failures"></div>
+            <h3 class="spaced">Refused submissions</h3>
+            <div id="rejections"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="muted small">
+      Read-only. Counts, durations and states only; no document content, tickets or secrets are
+      collected. Figures reset when a monitored service restarts.
+    </footer>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

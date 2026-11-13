@@ -80,7 +80,7 @@ Goals the current implementation actually serves:
 | Report what could not be done, instead of hiding it            | Warning codes at every stage; `INSUFFICIENT_INFORMATION` is a first-class outcome                                       |
 | Produce a workbook the office template accepts                 | Surgical OOXML rewrite in `server/export/`, self-verified before return                                                 |
 | Leave no confidential document content at rest                 | Buffers parsed in memory and discarded; no upload directory exists                                                      |
-| Survive a provider outage without losing the run               | Deterministic fallback in `server/structure/index.js`; per-case discard in `server/generate/index.js`                   |
+| Never present a reduced result as a complete one               | Fail-fast stages (`structure`, `generate`, `semantic`); per-case discard in `server/generate/index.js`                  |
 
 ---
 
@@ -295,18 +295,22 @@ Fields on a reconstructed requirement:
 | `title`             | **AI** | a display handle; nothing is generated from it               |
 | `test_points`       | **AI** | guidance, kept **outside** the canonical model               |
 
-**Failure / fallback** (`server/structure/index.js`):
+**Failure: fail-fast, no fallback** (`server/structure/index.js`):
 
-- Provider unavailable, malformed reply, or nothing rebuildable → falls back to
-  the deterministic `buildRequirements()` extraction, emits
-  `AI_REQUIREMENT_STRUCTURING_FAILED`, returns `test_points: []`, and the
-  workflow **continues**. Nothing is invented to fill the gap.
-- A non-`AppError` (a programming error) is rethrown, not disguised as
-  "structuring did not run".
+- Provider unavailable, rate limited, too slow, refusing, a reply in the wrong shape, or a
+  reply from which no requirement can be rebuilt → the stage **throws** (the provider's own
+  `LlmError`, or `LLM_MALFORMED_OUTPUT` 502 for an unusable reply) and the workflow stops. There
+  is no deterministic extraction behind it and no second provider: a requirement per sentence,
+  empty "THEN the system must:" stubs and criteria lost as headings looked like a result and
+  were not one. The error carries no text from the model.
+- No text blocks at all → no call is made and the caller refuses the empty extraction
+  (`NO_REQUIREMENTS_EXTRACTED`).
+- A non-`AppError` (a programming error) and a cancelled caller are rethrown untouched.
+- `recover.js` is not a fallback: it only restores behavioural blocks the model set aside, on
+  top of a structuring the model did produce.
 
 **Warning codes:** `UNKNOWN_SOURCE_BLOCK`, `DUPLICATE_SOURCE_BLOCK`,
-`REQUIREMENT_WITHOUT_SOURCE`, `BLOCK_IN_MULTIPLE_REQUIREMENTS`,
-`AI_REQUIREMENT_STRUCTURING_FAILED`, `SOURCE_TRUNCATED`.
+`REQUIREMENT_WITHOUT_SOURCE`, `BLOCK_IN_MULTIPLE_REQUIREMENTS`, `SOURCE_TRUNCATED`.
 
 ### Gemini #2 — Test Case Generation
 
@@ -378,10 +382,11 @@ Categories (`SEMANTIC_CATEGORIES` in `server/schema/enums.js`):
 `unsupported_implementation_detail`, `duplicate`, `missing_coverage`,
 `suspicious_edge_polarity`, `suspicious_case_type`, `no_meaningful_test`.
 
-A failed AI review is **reported, not thrown**: `/api/validate` still returns
-200 with the heuristic findings and `semantic.llm = 'failed'` with a reason. The
-Results page says the review did not run, so an empty list is never mistaken for
-a clean result.
+An AI review that was asked for and fails is **thrown**: `/api/validate?semantic=true` answers
+with the error (and a job fails in its `validate` phase), never with the heuristic findings
+alone. `semantic.llm` is `completed`, `not_requested` or `skipped` (the project is not
+structurally valid, or has no test cases, so there was nothing to review); there is no
+`failed` value. Retrying is the same request again, from the finished project.
 
 ---
 
@@ -465,10 +470,9 @@ absent from the run.
 
 ### When structuring fails
 
-Deterministic extraction takes over: one requirement per candidate block, no
-grouping, no examples filtered, no test points — plus
-`AI_REQUIREMENT_STRUCTURING_FAILED` telling the reviewer to look more closely
-than usual.
+The extraction fails with the safe error code (`LLM_UNAVAILABLE`, `LLM_TIMEOUT`,
+`LLM_RATE_LIMITED`, `LLM_MALFORMED_OUTPUT`, …) and nothing is extracted in its place. The user
+retries the step by hand; the documents are sent again.
 
 ### Extraction warnings
 
@@ -624,27 +628,27 @@ flowchart TD
 
 ---
 
-## 12. Failure Handling / Fail-Soft Strategy
+## 12. Failure Handling / Fail-Fast Strategy
 
 ### Pipeline / business failures
 
-| Stage         | Failure                                               | Behaviour                                                                                                      |
-| ------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Extraction    | One document unreadable                               | Marked `Failed`, `DOCUMENT_FAILED` warning, **batch continues**                                                |
-| Extraction    | All documents unreadable                              | Fatal `EXTRACTION_FAILED` (422) with per-document detail                                                       |
-| Extraction    | Parsed but nothing testable                           | Fatal `NO_REQUIREMENTS_EXTRACTED` (422) with metrics                                                           |
-| **Gemini #1** | Provider down / rate limited / timeout / malformed    | **Fail-soft**: deterministic extraction, `AI_REQUIREMENT_STRUCTURING_FAILED`, `test_points: []`, run continues |
-| **Gemini #1** | Programming error (non-`AppError`)                    | Rethrown — not disguised as "did not run"                                                                      |
-| **Gemini #2** | Reply shape wrong                                     | Fatal `LLM_MALFORMED_OUTPUT` (502); requirements kept in browser, retry costs one call                         |
-| **Gemini #2** | One case unparseable                                  | That case discarded, reported by position; **batch survives**                                                  |
-| **Gemini #2** | One case fails canonical schema                       | Discarded, never repaired; survivors renumbered densely                                                        |
-| **Gemini #2** | Every case discarded                                  | Fatal `GENERATION_EMPTY` (422)                                                                                 |
-| **Gemini #2** | Classification outside vocabulary                     | **Soft warning**, case kept and exported                                                                       |
-| **Gemini #3** | Any failure                                           | **Reported, not thrown** — 200 with heuristic findings, `semantic.llm = 'failed'`, retry the review alone      |
-| Export        | No test cases                                         | `EXPORT_EMPTY` (422)                                                                                           |
-| Export        | Case unrepresentable (empty action / expected result) | `EXPORT_BLOCKED` (422) with details                                                                            |
-| Export        | Template missing or unreadable                        | `EXPORT_GENERATION_FAILED`                                                                                     |
-| Export        | Output fails its own read-back check                  | `EXPORT_VERIFICATION_FAILED`, **no file returned**                                                             |
+| Stage         | Failure                                               | Behaviour                                                                                                        |
+| ------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Extraction    | One document unreadable                               | Marked `Failed`, `DOCUMENT_FAILED` warning, **batch continues**                                                  |
+| Extraction    | All documents unreadable                              | Fatal `EXTRACTION_FAILED` (422) with per-document detail                                                         |
+| Extraction    | Parsed but nothing testable                           | Fatal `NO_REQUIREMENTS_EXTRACTED` (422) with metrics                                                             |
+| **Gemini #1** | Provider down / rate limited / timeout / malformed    | **Fatal**: the provider's `LLM_*` code (`LLM_MALFORMED_OUTPUT` for an unusable reply); nothing extracted instead |
+| **Gemini #1** | Programming error (non-`AppError`)                    | Rethrown — not disguised as "did not run"                                                                        |
+| **Gemini #2** | Reply shape wrong                                     | Fatal `LLM_MALFORMED_OUTPUT` (502); requirements kept in browser, retry costs one call                           |
+| **Gemini #2** | One case unparseable                                  | That case discarded, reported by position; **batch survives**                                                    |
+| **Gemini #2** | One case fails canonical schema                       | Discarded, never repaired; survivors renumbered densely                                                          |
+| **Gemini #2** | Every case discarded                                  | Fatal `GENERATION_EMPTY` (422)                                                                                   |
+| **Gemini #2** | Classification outside vocabulary                     | **Soft warning**, case kept and exported                                                                         |
+| **Gemini #3** | Any failure (review requested)                        | **Fatal**: the provider's `LLM_*` code; no half-reviewed report; retry the review alone                          |
+| Export        | No test cases                                         | `EXPORT_EMPTY` (422)                                                                                             |
+| Export        | Case unrepresentable (empty action / expected result) | `EXPORT_BLOCKED` (422) with details                                                                              |
+| Export        | Template missing or unreadable                        | `EXPORT_GENERATION_FAILED`                                                                                       |
+| Export        | Output fails its own read-back check                  | `EXPORT_VERIFICATION_FAILED`, **no file returned**                                                               |
 
 ### Development infrastructure (NOT business failures)
 
@@ -834,7 +838,7 @@ server/
     detect.js             Content-signature format detection
     parsers/              pdf.js, docx.js, xlsx.js
     blocks.js             source_block_id assignment, prompt budget
-    requirements.js       Deterministic extraction (the fallback floor)
+    requirements.js       Line-by-line selection (parser tests only; not in the pipeline) and categorize()
     conflicts.js          Cross-document conflict detection
     noise.js              Boilerplate filtering
     index.js              Extraction pipeline
@@ -843,7 +847,7 @@ server/
     contract.js           JSON Schema + Zod
     validate.js           Structural checks + reconstruction from source
     test-points.js        Transit validation + prompt rendering
-    index.js              The stage, with deterministic fallback
+    index.js              The stage; fails fast, no fallback
   generate/               GEMINI #2
     prompt.js             System instruction (granularity + completeness rules)
     contract.js           Response contract, per-case parsing
@@ -852,7 +856,7 @@ server/
   semantic/               GEMINI #3
     heuristics.js         Free deterministic checks
     prompt.js, contract.js
-    index.js              Merge, anchor-check, fail-soft
+    index.js              Merge, anchor-check; a failed review throws
   scenario/
     checklist.js          Bounds, conditions, rejection paths
     obligations.js        10 obligation types + matching
@@ -1029,8 +1033,8 @@ later; each call reports an unreachable gateway as `LLM_UNAVAILABLE`.
 Nothing is retried or truncated. The adapter uses `node:http` instead of
 `fetch`: Apayee replies only when generation ends, and `fetch` gives up waiting
 for response headers after 300 seconds. Apayee's errors map onto the existing
-`LLM_*` codes, so the fail-soft structuring, the reported semantic failure and
-the user-facing messages behave as they do for Gemini.
+`LLM_*` codes, so a failed structuring, generation or review and the user-facing
+messages behave as they do for Gemini.
 
 **Cancellation.** If the browser closes the connection while a model call is
 running, the call is cancelled all the way down:
@@ -1043,8 +1047,8 @@ client disconnects -> route aborts its signal -> the adapter closes its request
 This covers all three calls (structuring in `/api/extract`, generation, and the
 semantic review) and is per request, so one client leaving never affects another.
 A cancelled call is logged as `REQUEST_CANCELLED` and is never recorded as a
-provider failure: structuring does not fall back to deterministic extraction and
-the review does not report `llm: failed`, because nobody is waiting for either.
+provider failure: a cancelled stage is neither logged as a failed call nor retried,
+because nobody is waiting for it.
 Timeouts and error responses are unchanged. The same signal reaches Gemini, so
 closing the browser now also stops a Gemini call; that is the only behaviour
 change for the other providers. Fastify's own `request.signal` is deliberately
@@ -1055,9 +1059,9 @@ not used (it is aborted by every normally completed POST); see
 
 - Apayee also ships a **mock provider** (`APAYEE_PROVIDER=mock`). Its stock mock answers a
   schema with the smallest value that satisfies it, which for QATOOL means no requirements and
-  no test cases: structuring falls back to deterministic extraction and generation ends in
-  `GENERATION_EMPTY`. That is correct behaviour for an empty answer, and the tests below use
-  scripted replies to reach the workbook.
+  no test cases: structuring fails (`LLM_MALFORMED_OUTPUT`: no requirement can be rebuilt from an
+  empty answer) and generation ends in `GENERATION_EMPTY`. That is correct behaviour for an empty
+  answer, and the tests below use scripted replies to reach the workbook.
 - **Claude is Apayee's concern, not QATOOL's.** Apayee's Claude provider drives a locally
   signed-in Claude Code CLI. There is no Claude, Anthropic or other vendor code in QATOOL, and
   QATOOL holds no Claude credentials; sign-in is described in the Apayee repository
@@ -1092,8 +1096,8 @@ $env:QATOOL_APAYEE_SMOKE=1; npm run test:apayee                   # PowerShell
    `$env:LLM_PROVIDER='apayee'`).
 3. Open http://localhost:5173, name the project, upload a synthetic document, and
    press Process. With Apayee on its `claude` provider this makes real model calls. With
-   Apayee's stock mock, expect the deterministic-fallback warning and a `GENERATION_EMPTY`
-   error at generation; that is the mock, not a fault. To see a complete run offline, serve
+   Apayee's stock mock, expect the structuring step to fail (`LLM_MALFORMED_OUTPUT`); that is
+   the mock, not a fault. To see a complete run offline, serve
    scripted replies by starting Apayee in-process with its `MockProvider({ output })` option,
    as `server/llm/apayee.smoke.test.js` does.
 4. To check cancellation, close the tab while Processing is running and watch
@@ -1160,9 +1164,9 @@ replaced is ignored.
 - Availability is a moment-in-time answer. A gateway that stops being Claude
   between the check and the call is caught by the reply check, but only after
   the document was sent to it.
-- If a provider fails _during_ structuring, extraction still falls back to
-  deterministic extraction with a warning, as it always has. Only a provider that
-  is already unavailable when the step starts is refused.
+- If a provider fails _during_ a stage, that stage fails with the provider's error; nothing
+  falls back to deterministic extraction or to another model. A provider that is already
+  unavailable when the step starts is refused before it begins.
 - The picker is not remembered across a page reload.
 
 **Testing the Apayee connection from the browser without Claude (Apayee on `mock`).**
@@ -1299,7 +1303,7 @@ repository.
 | **Verbatim by construction, not by inspection**    | Requirement bodies are rebuilt from cited blocks, so no quote-matching gate is needed                                    |
 | **No silent repair**                               | No normalisation of classification values; a bad value is flagged, never converted                                       |
 | **Warn rather than delete**                        | A soft classification mistake keeps the test case; only a structurally unusable case is discarded, and the loss is named |
-| **Fail-soft where safe, fatal where not**          | Gemini #1 falls back to deterministic extraction; malformed project outputs are fatal                                    |
+| **Failed is better than degraded**                 | A stage that cannot get its model answer fails; no deterministic substitute, no second provider, no partial success      |
 | **Report honestly**                                | `INSUFFICIENT_INFORMATION` and an uncovered obligation are correct outcomes, not failures to hide                        |
 | **Stateless single-session**                       | Nothing is stored; the export is the deliverable                                                                         |
 | **QA decides**                                     | No approve/reject in the tool; the reviewer call mutates nothing                                                         |

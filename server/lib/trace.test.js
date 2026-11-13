@@ -306,19 +306,19 @@ describe('the run summary', () => {
     assert.match(line, /fail_soft=false/);
   });
 
-  it('reports a degraded run as degraded, not as success', () => {
+  it('says where a failed run stopped, in the stage it was in', () => {
     const logger = recorder();
     let line;
 
     withRun({ logger }, (run) => {
-      setStage('EXTRACT');
-      recordFacts({ fallback_used: true });
-      line = summarise(run, { status: 'DEGRADED', reason: '503', failSoft: true });
+      setStage('STRUCTURE');
+      line = summarise(run, { status: 'FAILED', reason: 'LLM_UNAVAILABLE', failSoft: false });
     });
 
-    assert.match(line, /status=DEGRADED/);
-    assert.match(line, /reason=503/);
-    assert.match(line, /fail_soft=true/);
+    assert.match(line, /status=FAILED/);
+    assert.match(line, /stage=STRUCTURE/);
+    assert.match(line, /reason=LLM_UNAVAILABLE/);
+    assert.doesNotMatch(line, /DEGRADED/);
   });
 
   it('never carries content into the summary', () => {

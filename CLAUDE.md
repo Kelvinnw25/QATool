@@ -21,7 +21,7 @@ POST /api/export    server/export/ -> .xlsx from templates/sit-script-template.x
 | Path                        | Responsibility                                                                                                                                                                                                                                             |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `server/routes/pipeline.js` | The four routes; chooses the provider per request (`chooseProvider`)                                                                                                                                                                                       |
-| `server/structure/`         | LLM #1. `prompt.js`, `contract.js` (JSON schema + Zod), `validate.js` (rebuild), `recover.js`, `test-points.js`, `index.js` (fallback)                                                                                                                     |
+| `server/structure/`         | LLM #1. `prompt.js`, `contract.js` (JSON schema + Zod), `validate.js` (rebuild), `recover.js`, `test-points.js`, `index.js` (fail-fast)                                                                                                                    |
 | `server/generate/`          | LLM #2. Prompt, contract, `assemble.js` (ids, source refs, dedup, coverage)                                                                                                                                                                                |
 | `server/semantic/`          | LLM #3 plus free deterministic heuristics                                                                                                                                                                                                                  |
 | `server/scenario/`          | Deterministic checklist and 10 obligation types + matching                                                                                                                                                                                                 |
@@ -45,9 +45,14 @@ Exactly three call sites use `generateJson` (structure, generate, semantic). Kee
   dropped with a warning. `recover.js` restores unclaimed behavioural blocks. Descriptions are cut at
   5,000 chars silently. Do not add prompt text that asks the model to quote.
 - **Zod caps** in `structure/contract.js` (<=300 requirements, <=20 test points each, title/statement
-  <=300) fail the whole reply, which triggers deterministic fallback; the prompt does not state them.
-- **Fallbacks.** Stage 1 provider error or unparseable reply -> deterministic extraction + warning.
-  Stage 2 malformed reply is fatal. Stage 3 failure is reported, never blocking.
+  <=300) fail the whole reply, which fails the stage (`LLM_MALFORMED_OUTPUT`); the prompt does not state them.
+- **No fallbacks: failed beats degraded.** Stage 1 provider error or unusable reply -> the stage throws (no deterministic extraction, no other provider).
+  Stage 2 malformed reply is fatal. Stage 3 (when requested) failure is fatal too: the route answers with the error, a job fails in its phase
+  (`extract`, `generate`, `validate`) with the safe `LLM_*` code. **Failed is better than degraded or misleading output:** nothing
+  substitutes a deterministic extraction, a partial result or another provider, there is no `DEGRADED` run status and no `llm: "failed"`
+  review status. Retrying is always the user's explicit action. `buildRequirements()` (extract/requirements.js) stays for parser tests
+  only; `structure/structure.test.js` fails if a production module imports it. The `gemini_1/2/3_*` log events are legacy stage labels,
+  not Gemini calls (the provider is in the `provider` field); they are kept so log queries keep working.
 - **Test points** are not in the canonical model: returned by `/api/extract`, held in a React ref,
   posted back, revalidated and pinned to real requirement ids.
 - **Obligations** (`scenario/obligations.js`) are derived mechanically and drive coverage arithmetic;
@@ -121,8 +126,43 @@ Exactly three call sites use `generateJson` (structure, generate, semantic). Kee
   `apayee-claude-config`, never in Git. It is read-only from QATOOL's side unless the user explicitly asks for a
   change there: do not edit it, start/stop it, or call it from tests (`npm test` blocks non-localhost traffic; the
   fake gateway in `server/llm/fixtures/` stands in). QATOOL has no Claude credentials. New-machine setup for both
-  repositories: `README.md` > "Setup on a new Windows laptop".
+  repositories: `README.md` > "Setup on a new Windows laptop". Two rules about the schema contract with Claude:
+  - **The shared schemas are written once for every provider.** The Claude CLI validates them with Ajv literally, so a
+    `["string","null"]` property whose `enum` omits `null` rejects `null` (`edge_polarity`). Apayee adds `null` to such
+    enums for Claude only (`../Apayee/src/providers/claude/schema.js`); do not edit the shared contract to work around a
+    Claude-only behaviour, and do not give Gemini a null in an enum (it rejects non-string enum values).
+    `server/llm/claude-schema-compat.test.js` pins which nodes are nullable enums.
+  - **`gatewayCode` is log-only.** The adapter keeps Apayee's own code on every mapped error (`error.gatewayCode`, read by
+    `upstreamCodeOf` in `lib/trace.js`, logged as `upstream_code`); it never reaches a visitor. `upstreamCode` is
+    different - the circuit breaker's input, set for the two outage codes only. Do not merge them.
+  - **Model and effort belong to Apayee** (`APAYEE_CLAUDE_MODEL`: a full id from an allowlist; `APAYEE_CLAUDE_EFFORT`:
+    `low|medium|high|xhigh|max|auto`; both in `../Apayee/.env`, which Compose passes in through `env_file` - do not name
+    them in `compose.yaml`'s `environment:`, it would override the file; `scripts/staging/compose-env.test.js` pins that).
+    QATOOL sends only a closed `stage` label (`structure|generate|review`, in `llm/apayee.js`) for Apayee's log. The coverage
+    investigation and the benchmark procedure are `docs/COVERAGE_BENCHMARK.md`; its prompt recommendations are not applied.
+    **Rebuild order when both repositories change: `apayee` first, then `qatool-backend`** (an older Apayee refuses the
+    `stage` field).
 - External LLM use for the internal PRDs was explicitly approved by the user; do not re-ask.
+- **Ops monitor** (`ops/monitoring/`, own README): a local, read-only dashboard with no npm dependencies. It is the
+  default Compose service `qatool-monitoring`, so `docker compose up -d` starts it, and the dashboard is
+  **`http://127.0.0.1:3301`** (container port 3300, published on the host loopback only). It is outside `server/`,
+  `web/`, the backend image and Vercel; its tests are not in `npm test` (`npm --prefix ops/monitoring test`).
+  Rules easy to break:
+  - **Read-only, no secrets, no Docker.** The container has no `env_file`, no token, no Docker CLI and no
+    `docker.sock`; it is on `qatool-monitor-net` with the backend only (not `qatool-net`, so not Apayee). Never add a
+    secret to it or mount the Docker socket to get container statistics: those stay "not available" in the container
+    (host mode, `npm --prefix ops/monitoring start`, has them via the Docker CLI). Only `src/exec.js` starts programs,
+    host mode only, from an allow-list. Host mode refuses any non-loopback bind; only `MONITOR_MODE=container` allows
+    the in-container bind, and `compose.yaml` must keep `127.0.0.1:3301:3300`.
+  - **No route for the job metrics, ever.** `jobs/metrics.js` is reached only through `server/ops/`: when
+    `OPS_METRICS_SOCKET` is set (off by default; needs `PUBLIC_DEMO`) the backend serves `metrics.snapshot()` and a
+    reduced Apayee view (`apayee-view.js`, from the catalog's cached health call, so the token never leaves the
+    backend) on a private Unix socket file, `/run/qatool-ops/metrics.sock` on the volume `qatool-ops-metrics` (rw in
+    the backend, ro in the monitor; both run as uid 1000; socket 0600). Only `GET /snapshot` and `GET /apayee`;
+    answers pass `snapshot-guard.js`. The socket file is the one thing under `server/` that touches the filesystem
+    (no data, removed on shutdown); `server/ops/metrics-socket.test.js` pins that. The host-mode reader
+    `server/ops/read-metrics.js` still exists for `docker compose exec`. Changing the socket path or the backend's
+    `.env` needs `docker compose up -d --build --no-deps qatool-backend`.
 
 ## Commands
 
@@ -139,8 +179,9 @@ NODE_ENV=production npm start   # serves web/dist
 only when asked.
 
 Optional Docker stack (`compose.yaml`, `Dockerfile.backend`, `Dockerfile.frontend`, `.dockerignore`;
-details in `docs/DOCKER_LOCAL.md`): three services, `qatool-frontend`, `qatool-backend`, `apayee`
-(built from `../Apayee`, which stays read-only). Containers read `./.env` and `../Apayee/.env` at run
+details in `docs/DOCKER_LOCAL.md`): five services, `qatool-frontend`, `qatool-backend`, `apayee`
+(built from `../Apayee`, which stays read-only), `qatool-monitoring` (the ops dashboard) and `cloudflared` (the
+public Quick Tunnel; see the staging bullet below). Containers read `./.env` and `../Apayee/.env` at run
 time and override only `HOST`, `PORT` and `APAYEE_BASE_URL` (`http://apayee:4100`); no secret goes in
 a Dockerfile, the compose file or an image. The Claude sign-in lives in the named volume
 `apayee-claude-config`, declared `external: true` in `compose.yaml` so `down -v` cannot delete it: never `docker volume rm` or `docker volume prune` it unless asked. The Vite proxy target comes from
@@ -153,7 +194,12 @@ Before changing the Node.js or npm version, `package-lock.json` or any dependenc
 `docs/ENVIRONMENT_SNAPSHOT.md` (and its `.json` twin): it records the versions last checked, the
 lockfile hash, and the `npm test` baseline: 2,009 tests, 1,998 pass, 0 fail, 0 cancelled, 1 skipped, 10
 todo, exit code 0. (The 11 cancelled tests in `server/llm/llm.test.js` that older snapshots record were a
-test-only timer problem, fixed; a cancellation now is a regression.)
+test-only timer problem, fixed; a cancellation now is a regression.) Since then `server/ops/` added 36 tests and
+`server/security/local-guard.test.js` 6 more, and the Claude schema/gateway-code tests 16 more, all run on Windows
+(2,088 total there, 2,077 pass, same skipped and todo, after the fail-fast change that removed the fallbacks); the real-socket tests in `server/ops/` need Unix socket files, so they are skipped on Windows and add more on
+Linux (run them in a throwaway Linux container, see `ops/monitoring/README.md`). The monitor's and the staging
+scripts' tests are run separately (`npm --prefix ops/monitoring test`, `node --test "scripts/staging/*.test.js"`).
+The snapshot files have not been re-recorded.
 
 ## Conventions
 
@@ -179,9 +225,30 @@ test-only timer problem, fixed; a cancellation now is a regression.)
   client, queue/phase UI) are implemented and tested offline. **Staging is deployed, not a standing service:** the frontend is
   at `https://qatool-staging.vercel.app` (Vercel project `qatool-staging`), the backend runs in Docker on the owner's PC behind a free
   Cloudflare Quick Tunnel, and a browser Turnstile session was verified. A full real generation and export run through the browser is **not
-  yet confirmed** and no real model run has been measured. The tunnel address changes on every restart (update `VITE_API_BASE_URL`, redeploy);
-  the Vercel page stays up while the PC, Docker or the tunnel is off. Runbook: `docs/STAGING_DEPLOYMENT.md`; `vercel.json`, `.vercelignore`
-  and `deploy/` hold the templates. `jose` and `@fastify/cors` are the two dependencies added. Remaining risks are in
-  `docs/PUBLIC_DEMO_SECURITY.md` and `docs/PUBLIC_DEMO_JOBS.md`.
+  yet confirmed** and no real model run has been measured. The tunnel address changes on every start; the Vercel page stays up while the PC,
+  Docker or the tunnel is off. Runbook: `docs/STAGING_DEPLOYMENT.md`; `vercel.json`, `.vercelignore` and `deploy/` hold the templates. `jose` and
+  `@fastify/cors` are the two dependencies added. Remaining risks are in `docs/PUBLIC_DEMO_SECURITY.md` and `docs/PUBLIC_DEMO_JOBS.md`.
+- **Staging startup** is `.\scripts\start-qatool.ps1` (stop: `.\scripts\stop-qatool.ps1`); the logic is Node in `scripts/staging/` (tests there:
+  `node --test "scripts/staging/*.test.js"`, not part of `npm test`) and the `.ps1` files are thin wrappers. Rules easy to break:
+  - **`cloudflared` is a Compose service** (image pinned by tag **and** digest; a Quick Tunnel, so no token or credential exists; no published
+    port, no volume, read-only, no capabilities). It is on `qatool-ingress-net` (10.250.250.0/29) with the backend **only**, never on `qatool-net`, so
+    it cannot reach Apayee; both have fixed addresses there (`.2` tunnel, `.3` backend; a dynamic backend address once took `.2`). `.env`
+    `TRUSTED_PROXY_PEERS` must list `10.250.250.2`, or every visitor shares one rate-limit address.
+  - **The tunnel address is read from cloudflared's log, never guessed**, and verified end to end before use (it answers `/healthz` and the API
+    refuses what it must: 403 without or with a foreign Origin, 401 with the frontend Origin, no direct extract/generate). An address that answers
+    but fails those checks is **stopped, not published**. Do not loosen `verify.js` to make a run pass.
+  - **Vercel is touched only from the Windows host**, by the CLI, for the project `qatool-staging` only (the link file and `vercel project inspect`
+    must agree, in preflight). It sets `VITE_API_BASE_URL` for **Production only** (`env update`, or `env add` when absent), refuses a variable that also
+    covers another environment, and runs `vercel deploy --prod` **only when the live frontend's bundle does not already contain the verified
+    address**. No Vercel token, login or CLI ever goes in a container; do not add one. The script's output and failures pass `redact()`.
+  - **State is `.qatool-local/`** (Git-ignored, not uploaded, not in an image): `staging-state.json` and `monitor/tunnel-url`, public addresses
+    and times only, whitelisted by schema. The dashboard container mounts only `.qatool-local/monitor` read-only and re-reads the address each poll.
+  - **Concurrency is 2 in staging, and the script enforces it** (`scripts/staging/concurrency.js`): `JOB_WORKERS` (QATOOL `.env`) and
+    `APAYEE_MAX_CONCURRENT` (`../Apayee/.env`) must each be 1 or 2 **and equal** in the running containers (unset = 1), and the dashboard's live
+    `max_active` must match, or the tunnel is stopped. The applications still allow 1-3; do not raise the script's limit (`STAGING.maxConcurrency`)
+    without measuring. `workers.effective` reads 1 until the first job admission (the backend learns `max_active` lazily); that is not a failure.
+  - **Stop is `docker compose stop` and nothing else** (`docker.js` refuses `down`, `rm`, volumes, images). Never `down -v`.
+  - **Local mode refuses tunnel traffic** (`server/security/local-guard.js`: `403 LOCAL_MODE_NOT_PUBLIC` for any request with Cloudflare edge
+    headers), because `docker compose up -d` now also starts the tunnel. Do not remove it.
 - Under `npm run dev` the UI double-runs each phase (React StrictMode); production does not.
 - Keep `.env` out of anything you print: read variable names only.

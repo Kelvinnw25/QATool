@@ -1,7 +1,18 @@
 # Public staging deployment (Vercel + Cloudflare Quick Tunnel + Docker on Windows)
 
 How the QATOOL public demo is put on the internet for staging: the React app on Vercel, the API in Docker on the
-owner's Windows PC behind a temporary Cloudflare Quick Tunnel, visitors admitted by Turnstile and a signed ticket.
+owner's Windows PC behind a temporary Cloudflare Quick Tunnel (itself a Docker service), visitors admitted by Turnstile and a
+signed ticket.
+
+> **One command.** From the repository folder in PowerShell:
+>
+> ```powershell
+> .\scripts\start-qatool.ps1        # start everything, tunnel and Vercel included
+> .\scripts\stop-qatool.ps1         # stop it again (nothing is deleted)
+> ```
+>
+> What it does, when it deploys and how to recover are in [9](#9-start-the-quick-tunnel-and-deploy). The rest of this document
+> is the reference behind it.
 
 > **Status.** The Vercel project `qatool-staging` is deployed (production alias `https://qatool-staging.vercel.app`),
 > the Turnstile widget exists, `PUBLIC_DEMO=true` is set on the local backend, and a browser Turnstile session
@@ -42,11 +53,12 @@ Visitor's browser
    └──────────────────────────────────────────►  Cloudflare edge  (CORS: the Vercel origin only)
                                                      │  Quick Tunnel (outbound connection from the PC)
                                                      ▼
-   Windows host:  cloudflared --url http://127.0.0.1:3001      (Docker publishes 127.0.0.1:3001 only)
+   Docker network qatool_qatool-ingress-net  (cloudflared 10.250.250.2  +  qatool-backend 10.250.250.3, nothing else)
+        cloudflared  --url http://qatool-backend:3001       no host port, no token, no volume, read-only, no capabilities
                                                      │
    Docker network qatool_qatool-net (private)        ▼
         qatool-backend :3001  ──►  apayee :4100 (socat) ──► 127.0.0.1:4101 ──► Claude Code CLI
-                                      no host port, never tunnelled
+                                      no host port, never tunnelled, not on the ingress network
 ```
 
 | Name                                       | What it is                                                                                    | Reachable from the internet?                                   |
@@ -54,17 +66,20 @@ Visitor's browser
 | `https://qatool-staging.vercel.app`        | **Public frontend.** Static files; holds no secret and no state                               | Yes, by design                                                 |
 | `https://<random-words>.trycloudflare.com` | **Public API address.** The backend through the Quick Tunnel; changes on every tunnel restart | Yes, but every route needs a ticket, a Turnstile pass, or both |
 | `qatool-backend`                           | Private Docker service, host port `127.0.0.1:3001`                                            | Only through the tunnel                                        |
+| `cloudflared`                              | The Quick Tunnel, a Docker service. Reaches the backend and nothing else; publishes no port   | It _is_ the way in, and holds no credential                    |
 | `apayee`                                   | **Private Docker service.** The Claude gateway. Ports 4100 and 4101 are unpublished           | **Never**                                                      |
-| `qatool-frontend`                          | The Vite dev-server container (5173). **Not needed in staging**                               | Never; stop it (see [11](#11-windows-operating-guide))         |
+| `qatool-monitoring`                        | The owner's dashboard, `http://127.0.0.1:3301`. Read-only; holds no secret                    | **Never** (loopback only; not tunnelled)                       |
+| `qatool-frontend`                          | The Vite dev-server container (5173), local use only. Not needed for staging                  | Never (loopback only)                                          |
 
 Public access uses **Turnstile + a QATOOL ticket**. Cloudflare Access (owner-only) is not applied to the API: it would
 block visitors. `PUBLIC_DEMO` and `PUBLIC_MODE` are separate modes that cannot be on together.
 
 **Two consequences of a Quick Tunnel to accept:**
 
-- **The tunnel address changes every time `cloudflared` restarts** (a reboot, a closed window, a crash). The frontend reads it
-  at build time as `VITE_API_BASE_URL`, so each new tunnel needs the Vercel variable updated **and a new production
-  deployment** ([9](#9-start-the-quick-tunnel-and-deploy)). The Turnstile widget, `ALLOWED_ORIGINS` and `TURNSTILE_HOSTNAMES`
+- **The tunnel address changes every time the `cloudflared` container starts** (a reboot, a stop and start, a crash). The frontend
+  reads it at build time as `VITE_API_BASE_URL`, so each new tunnel needs the Vercel variable updated **and a new production
+  deployment**. `scripts/start-qatool.ps1` does both, only when the address actually changed
+  ([9](#9-start-the-quick-tunnel-and-deploy)). The Turnstile widget, `ALLOWED_ORIGINS` and `TURNSTILE_HOSTNAMES`
   name the Vercel host, not the tunnel, so they never change.
 - **The production frontend can stay up while the backend is offline.** Vercel serves `qatool-staging.vercel.app` regardless of this
   PC. With Docker or the tunnel off, visitors see the Verify panel and a "cannot be reached" message, not a blank page. Nothing
@@ -97,9 +112,11 @@ Needed, and not provided by the repository:
 
 - The Windows PC from the root [README](../README.md#setup-on-a-new-windows-laptop): Docker Desktop, both repositories cloned side by side, both `.env`
   files, and Apayee signed in to Claude ([DOCKER_LOCAL.md](DOCKER_LOCAL.md#one-time-claude-sign-in)).
-- A **Cloudflare account** (Turnstile; no domain needed for the free profile) and `cloudflared` on the PC
-  (`winget install --id Cloudflare.cloudflared`; open a new terminal and run `cloudflared --version`). Cloudflare WARP is a different product.
-- A **Vercel account** and the Vercel CLI (`npm i -g vercel`, then `vercel login`).
+- A **Cloudflare account** for Turnstile (no domain needed for the free profile). The tunnel itself needs no account and **no
+  `cloudflared` on the PC**: it is the `cloudflared` Docker service, pinned in `compose.yaml`.
+- A **Vercel account** and the Vercel CLI on the PC (`npm i -g vercel`, then `vercel login`, then `vercel link` once; see
+  [7](#7-vercel-project)). The CLI stays on the host: its login never enters a container.
+- Node.js 22.13 or newer on the PC (the start script runs on it).
 - A decision on the GitHub repository's visibility. `github.com/Kelvinnw25/QATool` is publicly readable; the tree holds no secret, but
   it documents the whole deployment. Vercel's CLI deploys from the working folder, so it does not need a Git connection.
 - The Claude subscription behind Apayee is **the owner's**. Serving other people from it is, per Apayee's own documentation
@@ -124,20 +141,23 @@ Needed, and not provided by the repository:
 **Local backend `.env`** (secret, never in Vercel, never `VITE_`). Names come from `server/security/settings.js` and `.env.example`;
 the backend refuses to start (naming the variable, never the value) when a required one is missing or malformed:
 
-| Variable              | Required     | Value                                                                                                                      | Secret? |
-| --------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `PUBLIC_DEMO`         | to go public | `true` last, after everything else is set and verified. Do **not** set `PUBLIC_MODE`                                       | No      |
-| `ALLOWED_ORIGINS`     | yes          | `https://qatool-staging.vercel.app`: exact origin, scheme and host, no path, no wildcard; also the ticket's audience       | No      |
-| `TURNSTILE_HOSTNAMES` | yes          | `qatool-staging.vercel.app` (no scheme)                                                                                    | No      |
-| `TURNSTILE_ACTION`    | optional     | `qatool_demo` (the default)                                                                                                | No      |
-| `TURNSTILE_SECRET`    | yes          | the widget's **Secret Key**. Backend only                                                                                  | **Yes** |
-| `TICKET_SECRET`       | yes          | at least 32 random characters, generated locally ([5](#5-configure-the-local-backend)). Changing it logs every visitor out | **Yes** |
-| `TRUSTED_PROXY_PEERS` | recommended  | `172.18.0.1`, the Docker network gateway through which the host's `cloudflared` appears                                    | No      |
-| `APAYEE_TOKEN`        | existing     | already in `.env`; must equal Apayee's `APAYEE_AUTH_TOKEN`. Compose points the backend at `http://apayee:4100`             | **Yes** |
+| Variable              | Required     | Value                                                                                                                         | Secret? |
+| --------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `PUBLIC_DEMO`         | to go public | `true` last, after everything else is set and verified. Do **not** set `PUBLIC_MODE`                                          | No      |
+| `ALLOWED_ORIGINS`     | yes          | `https://qatool-staging.vercel.app`: exact origin, scheme and host, no path, no wildcard; also the ticket's audience          | No      |
+| `TURNSTILE_HOSTNAMES` | yes          | `qatool-staging.vercel.app` (no scheme)                                                                                       | No      |
+| `TURNSTILE_ACTION`    | optional     | `qatool_demo` (the default)                                                                                                   | No      |
+| `TURNSTILE_SECRET`    | yes          | the widget's **Secret Key**. Backend only                                                                                     | **Yes** |
+| `TICKET_SECRET`       | yes          | at least 32 random characters, generated locally ([5](#5-configure-the-local-backend)). Changing it logs every visitor out    | **Yes** |
+| `TRUSTED_PROXY_PEERS` | **required** | `10.250.250.2`: the `cloudflared` container's fixed address (comma-separated; `172.18.0.1` may stay). The start script checks | No      |
+| `APAYEE_TOKEN`        | existing     | already in `.env`; must equal Apayee's `APAYEE_AUTH_TOKEN`. Compose points the backend at `http://apayee:4100`                | **Yes** |
 
-Left unset on purpose: `PUBLIC_MODE` (cannot be combined), `JOB_WORKERS` (default 1; it can never exceed Apayee's `max_active`),
-`JOB_MAX_PENDING` (default 10: at most workers + 10 jobs are accepted) and Apayee's `APAYEE_MAX_CONCURRENT` (default 1; set in
-Apayee's own `.env`). The upload and parser ceilings keep their defaults (10 MiB per file, 20 MiB total, 30 files); there is no
+Left unset on purpose: `PUBLIC_MODE` (cannot be combined) and `JOB_MAX_PENDING` (default 10: at most workers + 10 jobs are accepted).
+**Concurrency** is set on purpose to **2** in two places that must agree: `JOB_WORKERS=2` in this repository's `.env` and
+`APAYEE_MAX_CONCURRENT=2` in Apayee's own `.env`. The jobs that really run at once are `min(JOB_WORKERS, Apayee max_active)`. The applications
+accept 1-3, but the start script accepts only **1 or 2, equal on both sides** (unset means 1); any other value stops the tunnel before it is
+published. After a start the backend may report `effective` 1 on the dashboard: it learns the gateway's `max_active` when it admits its first
+job, so that is expected, not a fault, and the script does not fail on it. The upload and parser ceilings keep their defaults (10 MiB per file, 20 MiB total, 30 files); there is no
 hourly or daily model budget. `LLM_PROVIDER` is ignored in this mode (the model is fixed to Claude). The backend also refuses a short or
 placeholder ticket secret and any `ALLOWED_ORIGINS` that is not an exact `https` origin.
 
@@ -162,17 +182,19 @@ paste secret values into a chat, a ticket or a terminal log.** `.env` is read by
    ```
 
 3. Paste the Turnstile **Secret Key** ([6](#6-turnstile-widget)) after `TURNSTILE_SECRET=`.
-4. Check the Docker gateway that `TRUSTED_PROXY_PEERS` should list (the stack must have been started once):
+4. Set `TRUSTED_PROXY_PEERS` to the tunnel container's fixed address. `compose.yaml` gives `cloudflared` the address `10.250.250.2` on its
+   own network (`qatool-ingress-net`, shared with the backend only), so the value is known in advance:
 
-   ```powershell
-   docker network inspect qatool_qatool-net --format "{{range .IPAM.Config}}{{.Gateway}}{{end}}"
+   ```text
+   TRUSTED_PROXY_PEERS=10.250.250.2
    ```
 
-   The backend sees the TCP peer, not the visitor. With Docker Desktop, a request that `cloudflared` sends to `localhost:3001` arrives from
-   that gateway. With the value listed, the backend believes `CF-Connecting-IP` from that peer, which matters for one thing: the backstop on
-   ticket minting (`SESSION_MINT_PER_MINUTE_PER_IP`, 30). **Left empty, every visitor shares one address and one allowance of 30 mints a
-   minute.** Anything on the PC can reach the loopback port and claim a `CF-Connecting-IP`; that can only affect that backstop and the logs,
-   never authentication.
+   (A comma-separated list is fine; an older `172.18.0.1` entry may stay.) The backend sees the TCP peer, not the visitor. With the tunnel's
+   address listed, it believes `CF-Connecting-IP` from that peer alone, which matters for one thing: the backstop on ticket minting
+   (`SESSION_MINT_PER_MINUTE_PER_IP`, 30). **Left out, every visitor shares one address and one allowance of 30 mints a minute.** Only the
+   `cloudflared` container shares a network with the backend that this address belongs to, so nothing else can claim a `CF-Connecting-IP`
+   to the backend that is believed; and that could only affect that backstop and the logs, never authentication.
+   `scripts/start-qatool.ps1` refuses to start without it and checks the running backend as well.
 
 5. Only after the lines are saved, change `PUBLIC_DEMO=false` to `PUBLIC_DEMO=true` and save.
 6. Recreate **only** the backend (no rebuild; Apayee and its sign-in are untouched; `.env` is read when a container is created):
@@ -182,8 +204,8 @@ paste secret values into a chat, a ticket or a terminal log.** `.env` is read by
    docker compose ps          # qatool-backend: healthy. If it exits, its log names the variable (never a value)
    ```
 
-Never `docker compose down -v`, never remove or prune the `apayee-claude-config` volume, and do not change `JOB_WORKERS` or Apayee's
-concurrency until a real run has been measured.
+Never `docker compose down -v`, never remove or prune the `apayee-claude-config` volume, and keep `JOB_WORKERS` and Apayee's
+`APAYEE_MAX_CONCURRENT` equal (1 or 2; staging runs 2). To apply a change: `docker compose up -d --no-deps apayee qatool-backend`.
 
 ## 6. Turnstile widget
 
@@ -252,7 +274,7 @@ running them against your real `.env` is the only proof that the real configurat
 
 | #   | Command (PowerShell)                                                                                                                                                                                                       | Must give                                                                               |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 1   | `docker compose logs --tail 30 qatool-backend`                                                                                                                                                                             | a line with `demo_mode`, `workers` 1; no secret                                         |
+| 1   | `docker compose logs --tail 30 qatool-backend`                                                                                                                                                                             | a line with `demo_mode`, `workers` 2; no secret                                         |
 | 2   | `curl.exe -s -i http://127.0.0.1:3001/healthz`                                                                                                                                                                             | 200, body `{"status":"ok"}` and nothing else                                            |
 | 3   | `curl.exe -s -i http://127.0.0.1:3001/api/health`                                                                                                                                                                          | **403** (no Origin)                                                                     |
 | 4   | `curl.exe -s -i http://127.0.0.1:3001/api/health -H "Origin: https://example.org"`                                                                                                                                         | **403**                                                                                 |
@@ -261,44 +283,73 @@ running them against your real `.env` is the only proof that the real configurat
 | 7   | `curl.exe -s -i -X POST http://127.0.0.1:3001/api/session -H "Origin: https://qatool-staging.vercel.app" -H "Content-Type: application/json" -d "{}"`                                                                      | **400** `TURNSTILE_FAILED`, no ticket                                                   |
 | 8   | `curl.exe -s -i -X OPTIONS http://127.0.0.1:3001/api/session -H "Origin: https://qatool-staging.vercel.app" -H "Access-Control-Request-Method: POST"`                                                                      | 204 with the allowed origin only                                                        |
 | 9   | `docker compose ps`                                                                                                                                                                                                        | published ports: `127.0.0.1:3001->3001` only; nothing for 4100, 4101, 5173 or `0.0.0.0` |
-| 10  | `Get-Process cloudflared -ErrorAction SilentlyContinue`                                                                                                                                                                    | nothing: no tunnel is running                                                           |
+| 10  | `docker compose ps cloudflared`                                                                                                                                                                                            | not running yet (stopped or absent): no tunnel exists until the start script makes one  |
 | 11  | `docker compose exec -T apayee node -e "fetch('http://127.0.0.1:4100/v1/health',{headers:{Authorization:'Bearer '+process.env.APAYEE_AUTH_TOKEN}}).then(r=>r.json()).then(j=>console.log(j.provider,j.queue.max_active))"` | `claude 1`                                                                              |
 
 (The 503 `SERVICE_UNAVAILABLE` a job submission returns while Apayee is unreachable is the provider-unavailable refusal, not a gate failure.)
 
 ## 9. Start the Quick Tunnel and deploy
 
-Only when every gate row matched **and** `PUBLIC_DEMO=true` is live. The stack for staging is the backend and Apayee only; the frontend
-container is not needed because Vercel serves the UI:
+Only when every gate row matched **and** `PUBLIC_DEMO=true` is live. One command does the rest, from the repository folder:
 
 ```powershell
-docker compose stop qatool-frontend                  # once; also frees port 5173
-docker compose up -d apayee qatool-backend           # names listed on purpose: a plain `up -d` restarts the frontend
-docker compose ps                                    # apayee and qatool-backend: healthy
+.\scripts\start-qatool.ps1
 ```
 
-Start the tunnel in its own window (closing it ends the tunnel; there is deliberately no Windows service, so nothing is public unless you
-started it). Point it at port 3001 only, never 4100, 4101 or 5173:
+(If PowerShell refuses to run scripts: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. The script is plain text; read it first if you like.)
+It is safe to run again at any time, and it is what you run after a reboot.
+
+**What it does**, in order, and stops at the first step that fails, naming it:
+
+| Step          | What happens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Preflight  | Docker is running. The Vercel CLI is installed and logged in, and the linked project is **exactly `qatool-staging`** (the link file and `vercel project inspect` must agree). `.env` is the public demo (`PUBLIC_DEMO` on, `PUBLIC_MODE` off, the tunnel container trusted in `TRUSTED_PROXY_PEERS`, the frontend origin allowed). Nothing is started if any of this is wrong, so a tunnel is never created in front of the unauthenticated local mode                                             |
+| 2. Stack      | `docker compose up -d` (it recreates only what changed), then waits for health, then checks the settings the **running** containers hold: demo mode, `JOB_WORKERS` and `APAYEE_MAX_CONCURRENT` each 1 or 2 and equal (checked again against the live values on the dashboard), the tunnel trusted. If any is wrong it stops the tunnel before anything else                                                                                                                                        |
+| 3. Tunnel     | Waits for the `cloudflared` container to connect, reads its address from the container's **log** (never guessed), and checks it end to end: `/healthz` answers, and the API refuses what it must (no Origin: 403, a foreign Origin: 403, the frontend Origin without a ticket: 401 with CORS naming only the frontend, no direct extract or generate route). If the tunnel does not answer it is replaced once; if it answers but is not behind those protections it is **stopped, not published** |
+| 4. Monitoring | Writes the verified address to `.qatool-local/monitor/tunnel-url`, which the dashboard re-reads on every poll. No container is recreated                                                                                                                                                                                                                                                                                                                                                           |
+| 5. Vercel     | Compares the address with what the **live frontend was built with** (read from the deployed bundle, not only from memory). Only if they differ: sets `VITE_API_BASE_URL` for **Production only** (updated in place, or added if absent; no other variable, no other environment), deploys to production with `vercel deploy --prod`, waits until it is ready, and confirms `https://qatool-staging.vercel.app` now carries the new address                                                         |
+
+**When the tunnel address changes.** A Quick Tunnel gets a new address every time the container starts: after a reboot, after
+`stop-qatool.ps1` and `start-qatool.ps1`, or after a crash. The script notices (the old address no longer answers, or the log shows a
+new one), verifies the new tunnel, and runs the Vercel step. **When it does not change**, nothing is restarted, nothing is deployed, and
+no variable is touched. `.\scripts\start-qatool.ps1` twice in a row is a no-op the second time.
+
+**When it deploys.** Only when the live frontend does not already use the verified tunnel address (or with `-ForceDeploy`). That is
+the one deployment you approved: `vercel deploy --prod`, to the `qatool-staging` project only; the script refuses any other linked project.
+
+If a step fails the script says which, prints the tool's output with secrets and the account name removed, and leaves the last known
+working state alone (the recorded state is only advanced after a step is verified). Typical cases:
+
+- _Vercel variable updated but the deployment failed:_ the live page still serves the previous build; run the script again to retry.
+- _The new tunnel does not become reachable:_ nothing is deployed; run it again, and check this PC's connection and `docker compose logs cloudflared`.
+- _The tunnel answers but is not behind the protections:_ it is stopped; check the backend logs and `.env` before starting again.
+
+| Option         | Effect                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| `-NoDeploy`    | Everything except the Vercel step (the public page may point at an older tunnel)          |
+| `-ForceTunnel` | Make a new tunnel even if the running one works (a new address, so Vercel is updated too) |
+| `-ForceDeploy` | Deploy even if the live frontend already uses the current address                         |
+
+**Local state.** `.qatool-local/` (Git-ignored, never uploaded to Vercel or into an image) holds `staging-state.json` (the tunnel
+address, the address last deployed, timestamps) and `monitor/tunnel-url`. Only public addresses and times; a schema whitelist keeps
+anything else out. Deleting it is harmless: the script then checks the real systems.
+
+**Stop** (end of a presentation), also safe at any time:
 
 ```powershell
-cloudflared tunnel --url http://127.0.0.1:3001
+.\scripts\stop-qatool.ps1                  # docker compose stop: the tunnel, the stack and the dashboard
+.\scripts\stop-qatool.ps1 -TunnelOnly      # only the public tunnel: the Vercel page says "cannot be reached", the local stack stays up
 ```
 
-The address `https://<random-words>.trycloudflare.com` is printed in the banner. **For every new tunnel address**, do all of this:
+It runs plain `docker compose stop`: containers, networks and every volume (including `apayee-claude-config`) are kept, and `.env`, the
+Vercel link and the state are not touched. It never runs `down`, `down -v`, `rm` or `prune`. The Vercel page keeps loading (it is on
+Vercel) and says the demo cannot be reached until you start again.
 
-```powershell
-curl.exe -s -i https://<random-words>.trycloudflare.com/healthz                                                    # 200
-curl.exe -s -i https://<random-words>.trycloudflare.com/api/health                                                 # 403
-curl.exe -s -i https://<random-words>.trycloudflare.com/api/health -H "Origin: https://qatool-staging.vercel.app"  # 401
-vercel env rm VITE_API_BASE_URL production --yes                                                                   # skip if it does not exist yet
-vercel env add VITE_API_BASE_URL production                                                                        # enter the new address
-vercel deploy --prod                                                                                               # a new build picks it up
-```
-
-`vercel deploy --prod` is a production deployment of the staging project and the one way to update `qatool-staging.vercel.app` (it needs the
-owner's explicit decision each time). Afterwards confirm the backend saw the gateway as the peer: in
-`docker compose logs --since 5m qatool-backend | Select-String peer_ip`, the **401** request above (the one with an allowed Origin) must show
-the address listed in `TRUSTED_PROXY_PEERS`; if it shows another, fix the setting and recreate the backend.
+**Doing it by hand** (for understanding or a failure the script cannot fix): `docker compose up -d`; read the address from
+`docker compose logs cloudflared`; check it as the gate in [8](#8-pre-tunnel-gate) does, against that address; then
+`vercel env update VITE_API_BASE_URL --environment production` (or `vercel env add ...` if it does not exist), and `vercel deploy --prod`.
+Afterwards confirm the backend saw the tunnel as the peer: in `docker compose logs --since 5m qatool-backend | Select-String peer_ip`, a request
+through the tunnel shows `10.250.250.2`; if it shows another address, `TRUSTED_PROXY_PEERS` is wrong.
 
 ## 10. End-to-end check
 
@@ -306,7 +357,7 @@ On `https://qatool-staging.vercel.app`:
 
 - [ ] Complete Turnstile -> "Session ready". _(Verified.)_
 - [ ] Upload one small document -> queued/processing with the real phase -> results -> download the `.xlsx`. **This makes real Claude calls
-      through Apayee** and is the first real exercise of the stack: keep `JOB_WORKERS=1`. _(Not yet confirmed.)_
+      through Apayee** and is the first real exercise of the stack, with two workers (`JOB_WORKERS=2`, `APAYEE_MAX_CONCURRENT=2`). _(Not yet confirmed.)_
 - [ ] Cancel works; a second tab with a second session sees the queue position.
 - [ ] Reload the page -> it says the session was reset and asks to verify again.
 - [ ] Browser developer tools: requests go to the tunnel host only; no cookie; no `localStorage` or `sessionStorage` entry; no request to `/api` on the Vercel host.
@@ -316,13 +367,15 @@ On `https://qatool-staging.vercel.app`:
 
 Commands are PowerShell, run from the repository folder. Nothing here contains a secret.
 
-**Start order after a reboot:** Docker Desktop -> `docker compose up -d apayee qatool-backend` (the containers also restart by themselves,
-`restart: unless-stopped`) -> `cloudflared tunnel --url http://127.0.0.1:3001` -> the new-address steps in [9](#9-start-the-quick-tunnel-and-deploy).
+**Start (also after a reboot):** start Docker Desktop, wait for "Engine running", then `.\scripts\start-qatool.ps1`. The containers restart
+by themselves when Docker does (`restart: unless-stopped`), and that gives the tunnel a **new address**; the script finds it, verifies it and
+updates Vercel. Until it has run, the Vercel page loads but says the demo cannot be reached, because it was built with the old address.
 
-**Status:** `docker compose ps`; `curl.exe -s http://127.0.0.1:3001/healthz`; the tunnel window; `curl.exe -s https://<random-words>.trycloudflare.com/healthz`.
+**Status:** the dashboard at `http://127.0.0.1:3301`; `docker compose ps`; `curl.exe -s http://127.0.0.1:3001/healthz`;
+the current tunnel address is in `.qatool-local\staging-state.json` (`curl.exe -s <address>/healthz`).
 
-**Stop (end of presentation):** Ctrl+C in the tunnel window (or `Stop-Process -Name cloudflared`). The API is gone from the internet at
-once. Stop the containers only if you want to: `docker compose stop` (never `down -v`; do not `docker volume prune`).
+**Stop (end of presentation):** `.\scripts\stop-qatool.ps1` (everything) or `.\scripts\stop-qatool.ps1 -TunnelOnly` (just the public side). The API
+is gone from the internet at once. It is plain `docker compose stop`: never `down -v`, and do not `docker volume prune`.
 
 **Keep the PC awake during a presentation.** Note the current values first so you can restore them:
 
@@ -339,40 +392,56 @@ time use the PC's connection.
 
 ## 12. Troubleshooting
 
-| Symptom                                                       | Likely cause and what to check                                                                                                                                                                                                                |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Page says the demo service cannot be reached**              | PC off or asleep, Docker stopped, or the tunnel is down or has a **new address** the page was not rebuilt with. Start Docker, the stack, the tunnel, then update `VITE_API_BASE_URL` and redeploy ([9](#9-start-the-quick-tunnel-and-deploy)) |
-| **Docker stopped**                                            | `cloudflared` runs but Cloudflare returns 502 (origin refused). Start Docker Desktop; `docker compose ps`                                                                                                                                     |
-| **Backend unhealthy or missing**                              | `docker compose logs --tail 50 qatool-backend` (no secrets are logged). A startup refusal names the variable. Fix `.env`, then `docker compose up -d --no-deps --force-recreate qatool-backend`                                               |
-| **Backend up, jobs say the AI service is paused/unavailable** | Apayee is not ready or the Claude login expired: run gate row 11; if `provider` is not `claude`, sign in again ([DOCKER_LOCAL.md](DOCKER_LOCAL.md#one-time-claude-sign-in)). The pause lifts by itself after the cooldown                     |
-| `403 ORIGIN_FORBIDDEN` in the browser                         | `ALLOWED_ORIGINS` is not exactly the origin in the address bar (scheme, host, port; a `*.vercel.app` deployment URL is a different origin). Fix `.env`, recreate the backend                                                                  |
-| `TURNSTILE_FAILED`                                            | Widget hostname is not `qatool-staging.vercel.app`, action mismatch between `VITE_TURNSTILE_ACTION` and `TURNSTILE_ACTION`, wrong secret, or a token used twice                                                                               |
-| `503 CHALLENGE_UNAVAILABLE`                                   | The backend cannot reach Cloudflare's verification service (PC offline, DNS or firewall in Docker). Nothing is admitted until it can                                                                                                          |
-| `429 RATE_LIMITED` on session creation for everyone           | `TRUSTED_PROXY_PEERS` is empty or wrong, so all visitors share one address and one allowance                                                                                                                                                  |
-| `QUEUE_FULL` / `UPLOAD_BUSY`                                  | Expected under load; the page retries or asks the visitor to wait. Capacity is workers + 10                                                                                                                                                   |
-| Page shows "not configured"                                   | A `VITE_` variable is missing in Vercel (Production) or the deployment predates it; redeploy                                                                                                                                                  |
+| Symptom                                                       | Likely cause and what to check                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Page says the demo service cannot be reached**              | PC off or asleep, Docker stopped, or the tunnel is down or has a **new address** the page was not rebuilt with. Run `.\scripts\start-qatool.ps1`: it starts what is missing, verifies the tunnel and updates Vercel ([9](#9-start-the-quick-tunnel-and-deploy)) |
+| **Docker stopped**                                            | The tunnel container stopped with it; Cloudflare answers 530 or 502 for the old address. Start Docker Desktop, then run the start script                                                                                                                        |
+| `FAILED at step "Preflight"`: Docker / Vercel                 | The message names the command to run: start Docker Desktop, `npm i -g vercel`, `vercel login`, or `vercel link` (choose `qatool-staging`). "Could not confirm the Vercel login" is a network or API failure, **not** a logout: run it again                     |
+| `FAILED at step "Preflight"`: `TRUSTED_PROXY_PEERS`           | `.env` does not list `10.250.250.2`. Add it ([5](#5-configure-the-local-backend)); the script then recreates the backend                                                                                                                                        |
+| `FAILED at step "Tunnel"`                                     | The new tunnel did not become reachable (this PC's connection, or Cloudflare), or it answered but is not behind the protections (then it was **stopped**). Read the detail lines; `docker compose logs cloudflared`; run again                                  |
+| `FAILED at step "Vercel environment"` / `"Vercel deploy"`     | The step's output is shown with secrets removed. The live page still serves the previous build and the state file is unchanged; run the script again. A variable that also covers Preview or Development is refused, not changed                                |
+| **Backend unhealthy or missing**                              | `docker compose logs --tail 50 qatool-backend` (no secrets are logged). A startup refusal names the variable. Fix `.env`, then `docker compose up -d --no-deps --force-recreate qatool-backend`                                                                 |
+| **Backend up, jobs say the AI service is paused/unavailable** | Apayee is not ready or the Claude login expired: run gate row 11; if `provider` is not `claude`, sign in again ([DOCKER_LOCAL.md](DOCKER_LOCAL.md#one-time-claude-sign-in)). The pause lifts by itself after the cooldown                                       |
+| `403 ORIGIN_FORBIDDEN` in the browser                         | `ALLOWED_ORIGINS` is not exactly the origin in the address bar (scheme, host, port; a `*.vercel.app` deployment URL is a different origin). Fix `.env`, recreate the backend                                                                                    |
+| `TURNSTILE_FAILED`                                            | Widget hostname is not `qatool-staging.vercel.app`, action mismatch between `VITE_TURNSTILE_ACTION` and `TURNSTILE_ACTION`, wrong secret, or a token used twice                                                                                                 |
+| `503 CHALLENGE_UNAVAILABLE`                                   | The backend cannot reach Cloudflare's verification service (PC offline, DNS or firewall in Docker). Nothing is admitted until it can                                                                                                                            |
+| `429 RATE_LIMITED` on session creation for everyone           | `TRUSTED_PROXY_PEERS` does not list `10.250.250.2` (or the backend was not recreated after editing it), so all visitors share one address and one allowance. A request through the tunnel must log `peer_ip` `10.250.250.2`                                     |
+| `QUEUE_FULL` / `UPLOAD_BUSY`                                  | Expected under load; the page retries or asks the visitor to wait. Capacity is workers + 10                                                                                                                                                                     |
+| Page shows "not configured"                                   | A `VITE_` variable is missing in Vercel (Production) or the deployment predates it; redeploy                                                                                                                                                                    |
 
 ## 13. Rollback
 
 Ordered from fastest to most complete. None of them uses `docker compose down -v` or touches the Claude volume.
 
-1. **Stop traffic now:** Ctrl+C the tunnel window. The API is gone from the internet immediately.
+1. **Stop traffic now:** `.\scripts\stop-qatool.ps1 -TunnelOnly`. The API is gone from the internet immediately.
 2. **Lock the backend:** set `PUBLIC_DEMO=false` and recreate it; local mode has no authentication, so keep the tunnel stopped (or
    `docker compose stop qatool-backend`).
 3. **Invalidate every visitor:** change `TICKET_SECRET` and recreate the backend (all tickets stop working); rotate the Turnstile secret in the
    dashboard and `.env` if it may have leaked.
 4. **Remove the frontend:** in Vercel, roll back to the previous deployment or pause the project.
-5. **Back to local use:** `docker compose up -d` restores the three-service local stack (frontend container included).
+5. **Back to local use:** `docker compose up -d` restores the local stack. That also starts the `cloudflared` service: a Quick Tunnel to the
+   backend with **no** frontend pointing at it, and with `PUBLIC_DEMO` off it would expose the unauthenticated local mode. For local use
+   only, run `docker compose up -d apayee qatool-backend qatool-frontend qatool-monitoring` (not the tunnel), or `docker compose stop cloudflared`
+   afterwards.
 
 ## 14. Known risks
 
-- Real Claude run time, memory under load and parallel logins are **unmeasured**. Keep `JOB_WORKERS=1` and `APAYEE_MAX_CONCURRENT=1`
-  until they are measured.
+- Real Claude run time, memory under load and parallel logins are **unmeasured**, including with two jobs at once. Staging is capped at 2
+  (`JOB_WORKERS` and `APAYEE_MAX_CONCURRENT`, equal); do not go to 3 until they are measured.
 - The PC is the single point of failure: sleep, a reboot, Docker, the tunnel or the home connection take the demo down, and a Quick Tunnel
-  restart changes the API address.
+  restart changes the API address (the start script then redeploys the frontend; until it has run the page cannot reach the API).
+- **A Quick Tunnel is a temporary demo transport.** It has no uptime promise, no account, no WAF or rate-limit rules (the hostname is not in your
+  zone), and a new address on every start. Each new address costs a production deployment, and Vercel's build limits apply. For anything that
+  should stay up, use a named tunnel with a domain ([15](#15-alternative-custom-domain-with-a-named-tunnel)): a stable address that needs no redeploy.
+- **If `docker compose up -d` is run instead of the script**, the tunnel starts (it is an ordinary service) but the frontend is not updated, and
+  nothing checks the new address. Use the script. As a backstop, a backend in **local mode** (no `PUBLIC_DEMO`, no authentication) refuses every
+  request that carries Cloudflare's edge headers (`CF-Connecting-IP`, `CF-Ray`, ...) with `403 LOCAL_MODE_NOT_PUBLIC`
+  (`server/security/local-guard.js`), so a stray tunnel in front of local mode serves nothing. The start script also refuses to run unless `.env` is
+  the public demo.
 - A reload loses a visitor's session and data by design; background tabs can lose a job's 45 s lease.
 - Serving others from a personal Claude subscription is the owner's policy risk.
-- The owner-only operations dashboard is not designed; `PUBLIC_DEMO` and `PUBLIC_MODE` cannot share a process.
+- The owner's operations dashboard (`http://127.0.0.1:3301`, [ops/monitoring/README.md](../ops/monitoring/README.md)) is local only and is not tunnelled.
+  `PUBLIC_DEMO` and `PUBLIC_MODE` cannot share a process.
 
 ## 15. Alternative: custom domain with a named tunnel
 

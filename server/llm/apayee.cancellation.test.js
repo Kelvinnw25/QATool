@@ -81,7 +81,7 @@ describe('a disconnect stops the model call', () => {
         await waitFor(() => server.logged(/REQUEST_CANCELLED/), 'the cancellation to be logged');
         assert.equal(fake.requests.length, callsBefore + 1, 'nothing was retried');
 
-        // The two fail-soft stages must not turn a cancellation into their fallback.
+        // A cancellation is not a stage failure, and there is no fallback to land on either.
         assert.ok(!server.logged(/deterministic_fallback_used/), 'no deterministic fallback');
         assert.ok(!server.logged(/gemini_1_failed/), 'structuring did not "fail"');
         assert.ok(!server.logged(/gemini_3_failed/), 'the review did not "fail"');

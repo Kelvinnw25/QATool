@@ -45,7 +45,7 @@ function assertStructuring({ extract, extracted }, provider) {
   assert.equal(extract.statusCode, 200, extract.body);
 
   const { structuring, requirements } = extracted;
-  assert.equal(structuring.mode, 'ai', 'structuring did not fall back to deterministic extraction');
+  assert.equal(structuring.mode, 'ai', 'structuring did not run on the model');
   assert.equal(structuring.provider, provider);
   assert.equal(structuring.supporting_blocks.total, EXPECTED.supportingBlockCount);
 

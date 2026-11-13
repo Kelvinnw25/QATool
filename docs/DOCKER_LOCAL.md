@@ -33,7 +33,9 @@ Browser ──> http://localhost:5173  qatool-frontend  (Vite dev server, React)
             (not published)        apayee           (socat :4100 -> Apayee 127.0.0.1:4101 -> Claude Code CLI)
 ```
 
-Exactly three long-running services share one Compose network, `qatool_qatool-net`:
+Three long-running services share one Compose network, `qatool_qatool-net`. Two more services were added later and are documented where they
+belong: `qatool-monitoring` (the dashboard, `ops/monitoring/README.md`) and `cloudflared` (the public Quick Tunnel, `docs/STAGING_DEPLOYMENT.md`); each has
+its own network, and neither is on this one:
 
 | Service           | Image                   | Built from            | Container port | Published on host                  |
 | ----------------- | ----------------------- | --------------------- | -------------- | ---------------------------------- |
@@ -61,7 +63,7 @@ containers for the sign-in; they are not part of the stack.
 
 | File                  | Purpose                                                                                                       |
 | --------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `compose.yaml`        | The three services, the network and the `apayee-claude-config` volume                                         |
+| `compose.yaml`        | The services (the three below, plus the dashboard and the tunnel), the networks and the volumes               |
 | `Dockerfile.backend`  | Production dependencies of the root package (`npm ci --omit=dev --workspaces=false`), `server/`, the template |
 | `Dockerfile.frontend` | Only the `web` workspace's dependencies (`npm ci --workspace web`) and the web sources                        |
 | `.dockerignore`       | Allow-list build context; `.env*`, `node_modules`, tests, docs and `web/dist` never enter an image            |

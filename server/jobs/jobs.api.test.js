@@ -966,35 +966,173 @@ describe('what a visitor is never shown', () => {
     assert.equal('model' in structuring, false);
   });
 
-  it('turns a provider failure inside a stage into a fixed sentence, even where the stage writes it into a result', async () => {
-    // Structuring absorbs a provider failure into its fallback reason and a warning; the
-    // review absorbs one into its status. Both end up in results a visitor reads.
+  /**
+   * The model is Claude only, and a stage that cannot get its answer fails the job. These
+   * three tests fail each stage on its own, and check the same things every time: the job
+   * state, the phase that failed, the public error, what was and was not kept, how many
+   * model calls were made, what the metrics count, and that no gateway text reaches a
+   * visitor.
+   */
+  const GATEWAY_TEXT = 'Could not reach Apayee at http://apayee:4100 (ECONNREFUSED)';
+  const FAILING_CALL = { structuring: 1, generation: 2, review: 3 };
+  const FAILED_PHASE = { structuring: 'extract', generation: 'generate', review: 'validate' };
+
+  for (const [stage, callNumber] of Object.entries(FAILING_CALL)) {
+    it(`fails the job when the ${stage} call fails, with nothing substituted and nothing after it`, async () => {
+      const providers = fakeProviders({
+        model: fakeModel({
+          before: (_request, call) => {
+            if (call === callNumber) throw new LlmError('LLM_UNAVAILABLE', GATEWAY_TEXT, 502);
+          },
+        }),
+      });
+      const d = await demo({ providers });
+      const v = await d.visitor();
+      const { job } = (await submit(d, v)).body;
+      const done = await waitForState(d, v, job.id, ['completed', 'failed']);
+
+      // State, phase and public error agree.
+      assert.equal(done.state, 'failed', 'never completed, never "degraded"');
+      const failedPhase = FAILED_PHASE[stage];
+      const order = ['extract', 'generate', 'validate'];
+      assert.deepEqual(
+        done.phases,
+        Object.fromEntries(
+          order.map((phase, index) => [
+            phase,
+            index < order.indexOf(failedPhase)
+              ? 'done'
+              : phase === failedPhase
+                ? 'failed'
+                : 'not_run',
+          ])
+        )
+      );
+      assert.equal(done.error.phase, failedPhase);
+      assert.equal(done.error.code, 'LLM_UNAVAILABLE');
+      assert.equal(done.error.retryable, true);
+
+      // Nothing was made up for the missing stage, and nothing ran after it.
+      assert.equal(providers.model.state.calls, callNumber, 'no call after the failed one');
+      assert.deepEqual(providers.state.ids, ['claude'], 'only the Claude entry was ever asked for');
+      const body = (await d.call('GET', `/api/jobs/${job.id}/result`, { ticket: v.ticket })).body;
+      assert.deepEqual(
+        Object.keys(body.phases),
+        order.slice(0, order.indexOf(failedPhase)),
+        'only the phases that really finished are kept'
+      );
+
+      // The metrics tell the same story.
+      const { jobs, errors } = d.metrics.snapshot();
+      assert.equal(jobs.failed, 1);
+      assert.equal(jobs.completed, 0);
+      assert.equal(errors.by_code.LLM_UNAVAILABLE, 1);
+
+      // A visitor reads a fixed sentence, never the gateway's.
+      const everything = JSON.stringify([done, body]);
+      assert.match(everything, /temporarily unavailable/);
+      for (const leak of ['Apayee', 'apayee', 'ECONNREFUSED', 'http://', 'deterministic']) {
+        assert.ok(!everything.includes(leak), `"${leak}" reached a visitor`);
+      }
+    });
+  }
+
+  it('fails the job when the structuring reply cannot be used, and says so in fixed words', async () => {
     const providers = fakeProviders({
-      model: fakeModel({
-        before: (_request, call) => {
-          if (call === 1 || call === 3) {
-            throw new LlmError(
-              'LLM_UNAVAILABLE',
-              'Could not reach Apayee at http://apayee:4100 (ECONNREFUSED)',
-              502
-            );
-          }
+      model: {
+        state: { calls: 0 },
+        provider: {
+          name: 'FakeModel',
+          model: 'fake-model',
+          async generateJson() {
+            providers.model.state.calls += 1;
+            return { data: { nonsense: 'CONFIDENTIAL-FROM-THE-MODEL' }, usage: null };
+          },
         },
-      }),
+      },
     });
     const d = await demo({ providers });
     const v = await d.visitor();
     const { job } = (await submit(d, v)).body;
     const done = await waitForState(d, v, job.id, ['completed', 'failed']);
-    assert.equal(done.state, 'completed', JSON.stringify(done.error));
 
-    const result = JSON.stringify(
-      (await d.call('GET', `/api/jobs/${job.id}/result`, { ticket: v.ticket })).body
-    );
-    assert.match(result, /deterministic extraction/, 'the fallback really happened');
-    for (const leak of ['Apayee', 'apayee', 'ECONNREFUSED', 'http://']) {
-      assert.ok(!result.includes(leak), `"${leak}" reached a visitor`);
-    }
+    assert.equal(done.state, 'failed');
+    assert.equal(done.error.phase, 'extract');
+    assert.equal(done.error.code, 'LLM_MALFORMED_OUTPUT');
+    assert.equal(providers.model.state.calls, 1, 'one call: no retry, no later stage');
+    assert.deepEqual(done.phases, { extract: 'failed', generate: 'not_run', validate: 'not_run' });
+    assert.ok(!JSON.stringify(done).includes('CONFIDENTIAL'), 'the model’s text is not relayed');
+  });
+
+  it('lets the visitor retry a failed stage by hand, once, without a second job running', async () => {
+    const providers = fakeProviders({
+      model: fakeModel({
+        before: (_request, call) => {
+          if (call === 1) throw new LlmError('LLM_UNAVAILABLE', GATEWAY_TEXT, 502);
+        },
+      }),
+    });
+    const d = await demo({ providers });
+    const v = await d.visitor();
+
+    const first = (await submit(d, v)).body.job;
+    const failed = await waitForState(d, v, first.id, ['completed', 'failed']);
+    assert.equal(failed.state, 'failed');
+    assert.equal(providers.model.state.calls, 1);
+
+    // Nothing retries by itself: the gateway is left alone until the visitor asks.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(providers.model.state.calls, 1, 'no automatic retry');
+
+    // The explicit retry is an ordinary new job. The failed one is over, so it does not count
+    // as "already active", and the structuring runs again from the documents.
+    const retried = await submit(d, v);
+    assert.equal(retried.status, 202, JSON.stringify(retried.body));
+    assert.notEqual(retried.body.job.id, first.id);
+    const done = await waitForState(d, v, retried.body.job.id, ['completed', 'failed']);
+
+    assert.equal(done.state, 'completed', JSON.stringify(done.error));
+    assert.equal(providers.model.state.calls, 4, '1 failed + the 3 calls of one whole run');
+    const { jobs } = d.metrics.snapshot();
+    assert.equal(jobs.failed, 1);
+    assert.equal(jobs.completed, 1);
+  });
+
+  it('retries only the failed review, from the finished project, and does not run it twice', async () => {
+    const providers = fakeProviders({
+      model: fakeModel({
+        before: (_request, call) => {
+          if (call === 3) throw new LlmError('LLM_UNAVAILABLE', GATEWAY_TEXT, 502);
+        },
+      }),
+    });
+    const d = await demo({ providers });
+    const v = await d.visitor();
+    const first = (await submit(d, v)).body.job;
+    const failed = await waitForState(d, v, first.id, ['completed', 'failed']);
+    assert.equal(failed.error.phase, 'validate');
+
+    // The finished phases are kept; their project is what the retry is built from.
+    const kept = (await d.call('GET', `/api/jobs/${first.id}/result`, { ticket: v.ticket })).body
+      .phases;
+    const retry = await d.call('POST', '/api/jobs', {
+      ticket: v.ticket,
+      json: {
+        from: 'validate',
+        canonical: {
+          project: { ...kept.generate.project, project_name: 'Demo Project' },
+          documents: kept.extract.documents,
+          requirements: kept.extract.requirements,
+          test_cases: kept.generate.test_cases,
+        },
+        test_points: kept.extract.test_points,
+      },
+    });
+    assert.equal(retry.status, 202, JSON.stringify(retry.body));
+    const done = await waitForState(d, v, retry.body.job.id, ['completed', 'failed']);
+
+    assert.equal(done.state, 'completed', JSON.stringify(done.error));
+    assert.equal(providers.model.state.calls, 4, 'three calls, then only the review again');
   });
 
   it('logs metadata only: no document text, ticket, token, secret or session id', async () => {

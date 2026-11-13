@@ -24,7 +24,14 @@ import {
   promptedObligations,
 } from '../scenario/obligations.js';
 import { withMeasurability } from '../scenario/measurability.js';
-import { classifyLlmError, recordFacts, recordTiming, setStage, trace } from '../lib/trace.js';
+import {
+  classifyLlmError,
+  recordFacts,
+  recordTiming,
+  setStage,
+  trace,
+  upstreamCodeOf,
+} from '../lib/trace.js';
 
 /**
  * Milestone 4: requirements in, canonical outputs out.
@@ -311,6 +318,7 @@ export async function generateFromRequirements(
       // prompt lists, so the model cannot account for one it was never shown.
       schema: responseSchemaFor(prompted.map((obligation) => obligation.obligation_id)),
       signal,
+      stage: 'generate',
     }));
   } catch (error) {
     recordTiming('gemini2', Date.now() - startedAt);
@@ -322,6 +330,7 @@ export async function generateFromRequirements(
       error_category: classifyLlmError(error),
       error_class: error?.constructor?.name ?? 'Error',
       error_code: error?.code ?? null,
+      upstream_code: upstreamCodeOf(error),
       error_message: error?.message,
       fail_soft: false,
       fallback_used: false,

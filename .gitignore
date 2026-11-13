@@ -18,6 +18,9 @@ cert.pem
 # Vercel CLI link (project and team ids for this folder). Per machine.
 .vercel/
 
+# Local, non-secret state of scripts/start-qatool.ps1 (tunnel address, last deployed address). Per machine.
+.qatool-local/
+
 # Captured output from scripts/qa-eval - evaluation artifacts, not source.
 .qa-eval-output/
 

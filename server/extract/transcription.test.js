@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { detectFileType } from './detect.js';
 import { parseTranscription, looksLikeTranscription } from './parsers/transcription.js';
-import { extractDocuments } from './index.js';
+import { extractLineByLine } from './fixtures/line-by-line.js';
 import { buildPdf } from './fixtures/build.js';
 
 /**
@@ -120,7 +120,7 @@ describe('parsing a transcription', () => {
 
 describe('a transcription in the pipeline', () => {
   const upload = async () =>
-    extractDocuments([
+    extractLineByLine([
       {
         filename: 'spec.pdf',
         mimetype: 'application/pdf',

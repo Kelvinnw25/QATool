@@ -79,8 +79,8 @@ export async function runPipeline({
         working = mergeCanonical(working, partial);
         on.generated?.(result, partial);
       } else {
-        // A failed semantic review comes back as a result, not an error: the
-        // Results page reports it and can retry the review alone.
+        // A semantic review that fails is an error like any other phase's: the
+        // server refuses to hand back a half-reviewed result, and the run stops here.
         //
         // Awaited on its own line, never inside the callback's argument list:
         // `on.validated?.(await api.validate(...))` skips the whole call,

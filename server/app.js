@@ -95,22 +95,13 @@ export function buildApp({
         duration_ms: Date.now() - run.startedAt,
       });
 
-      // DEGRADED is not a failure: the run produced its output, but a stage
-      // fell back and the result is worth less than a clean one. Saying so in
-      // the summary is the whole point - it is invisible in the response.
-      const status = run.failure
-        ? 'FAILED'
-        : run.facts.fallback_used === true
-          ? 'DEGRADED'
-          : 'SUCCESS';
-
+      // Two verdicts. A run that did not finish a stage is FAILED; nothing produces a
+      // reduced result and calls it a success.
       request.log.info(
         summarise(run, {
-          status,
-          reason: run.failure?.reason ?? (status === 'DEGRADED' ? run.facts.fallback_reason : null),
-          failSoft: run.failure ? false : status === 'DEGRADED' ? true : null,
-          // Where it degraded, not where it finished.
-          stage: status === 'DEGRADED' ? run.facts.fallback_stage : null,
+          status: run.failure ? 'FAILED' : 'SUCCESS',
+          reason: run.failure?.reason ?? null,
+          failSoft: run.failure ? false : null,
         })
       );
     }

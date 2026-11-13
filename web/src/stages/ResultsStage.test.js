@@ -689,19 +689,16 @@ describe('Semantic review', () => {
     assert.doesNotMatch(html, /Run AI review|Retry AI review/);
   });
 
-  it('does not let a failed review pass for a clean one', () => {
-    const html = renderDetailed(
-      canonicalAfterGeneration(),
-      reviewed('failed', [], {
-        error: { code: 'LLM_UNAVAILABLE', message: 'The Gemini API is unavailable (HTTP 503).' },
-      })
-    );
+  it('does not let a review that did not complete pass for a clean one', () => {
+    // A review that fails is not a status any more: the server throws, and the run (or the
+    // standalone review) shows the error. Whatever status is not `completed` must never read
+    // as a finished review.
+    for (const llm of ['failed', 'skipped', 'not_requested']) {
+      const html = renderDetailed(canonicalAfterGeneration(), reviewed(llm, []));
 
-    assert.match(html, /The AI review did not run/);
-    assert.match(html, /HTTP 503/);
-    assert.match(html, /not a clean result/);
-    assert.match(html, /Retry AI review/);
-    assert.doesNotMatch(html, /No semantic concerns found/);
+      assert.doesNotMatch(html, /No semantic concerns found/, llm);
+      assert.doesNotMatch(html, /Checked by rules and by an AI review/, llm);
+    }
   });
 
   it('offers to run the review when it has not been run', () => {

@@ -11,6 +11,7 @@ import {
   toJobError,
   uploadBusy,
 } from './errors.js';
+import { upstreamCodeOf } from '../lib/trace.js';
 import { isProviderOutage } from './breaker.js';
 import { AsyncSemaphore } from './semaphore.js';
 
@@ -503,6 +504,7 @@ export class JobManager {
           event: 'job_failed',
           error_class: outcome.error?.constructor?.name ?? 'Error',
           error_code: outcome.error?.code ?? null,
+          upstream_code: upstreamCodeOf(outcome.error),
           phase,
         },
         'A job failed.'

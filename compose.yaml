@@ -56,7 +56,19 @@ services:
       APAYEE_BASE_URL: http://apayee:4100
     ports:
       - '127.0.0.1:3001:3001'
-    networks: [qatool-net]
+    # qatool-monitor-net is shared with qatool-monitoring only (it lets the monitor ask /healthz).
+    # qatool-ingress-net is shared with cloudflared only (the public tunnel reaches the backend there).
+    networks:
+      qatool-net:
+      qatool-monitor-net:
+      qatool-ingress-net:
+        # Fixed as well, or Docker may hand this container the address cloudflared needs (.2) when the
+        # backend is recreated first.
+        ipv4_address: 10.250.250.3
+    volumes:
+      # Holds the private metrics socket (OPS_METRICS_SOCKET=/run/qatool-ops/metrics.sock in .env).
+      # Read-write here: the backend creates the socket (0600, owner only) and removes it on shutdown.
+      - qatool-ops-metrics:/run/qatool-ops
     depends_on:
       apayee:
         condition: service_healthy
@@ -92,8 +104,111 @@ services:
     cpus: 1.0
     pids_limit: 256
 
+  # The local operations dashboard (ops/monitoring/README.md). Read-only: it watches, it never changes anything.
+  # Open it at http://127.0.0.1:3301. Port 3300 is the port INSIDE the container; the host side is 3301
+  # because 3300 is commonly taken by the host-mode copy of the monitor.
+  qatool-monitoring:
+    build:
+      # Only ops/monitoring/ is sent to the build, filtered by the .dockerignore beside the Dockerfile.
+      context: ./ops/monitoring
+    image: qatool-monitoring:local
+    init: true
+    # No env_file on purpose: the monitor holds no key and no token. Apayee's numbers reach it through the
+    # backend's private socket, so it never sees APAYEE_TOKEN. Everything below is non-secret.
+    environment:
+      MONITOR_MODE: container
+      MONITOR_PORT: '3300'
+      # The host port below, so the Host and Origin checks expect what the owner types in the browser.
+      MONITOR_PUBLIC_PORT: '3301'
+      MONITOR_JOBS_SOURCE: socket
+      MONITOR_METRICS_SOCKET: /run/qatool-ops/metrics.sock
+      MONITOR_BACKEND_URL: http://qatool-backend:3001
+      # The staging frontend on Vercel (a public address).
+      MONITOR_FRONTEND_URL: https://qatool-staging.vercel.app
+      # The Quick Tunnel address changes on every restart, so it is not written here: scripts/start-qatool.ps1
+      # writes the verified current one to this file, and the monitor re-reads it on every poll. No recreate.
+      MONITOR_TUNNEL_URL_FILE: /run/qatool-monitor/tunnel-url
+    ports:
+      # Loopback of THIS PC only. Never a bare '3301:3300', which would publish on every interface.
+      - '127.0.0.1:3301:3300'
+    # Not on qatool-net: the monitor cannot reach Apayee or the frontend. It shares qatool-monitor-net with
+    # the backend alone.
+    networks: [qatool-monitor-net]
+    volumes:
+      # The backend's socket, read-only: connecting to a socket does not need a writable mount.
+      - qatool-ops-metrics:/run/qatool-ops:ro
+      # One small file, read-only: the current tunnel address (a public name, not a secret), written by
+      # scripts/start-qatool.ps1. Only this folder is shared; the rest of .qatool-local/ is not visible here.
+      - ./.qatool-local/monitor:/run/qatool-monitor:ro
+    depends_on:
+      qatool-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+
+  # The public Quick Tunnel: a temporary https://<random-words>.trycloudflare.com address that reaches the
+  # backend and nothing else. A Quick Tunnel has no account, no token and no credentials file. The address is
+  # new every time this container starts; scripts/start-qatool.ps1 reads it from the logs, verifies it, and
+  # updates the Vercel frontend. Start the stack with that script rather than `docker compose up -d`.
+  # See docs/STAGING_DEPLOYMENT.md.
+  cloudflared:
+    # Pinned by tag AND digest (cloudflared 2026.10.7). Update both together, on purpose.
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    # The only origin is the backend, by its name on the ingress network. Never Apayee (4100/4101), the frontend
+    # container (5173) or the monitor (3300). The metrics server is bound inside the container only, for the
+    # health check below.
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - 127.0.0.1:2000
+      - --url
+      - http://qatool-backend:3001
+    # No env_file, no token, no volumes, no published port: nothing here is a secret and nothing is reachable
+    # from the host. Outbound only.
+    networks:
+      qatool-ingress-net:
+        # Fixed, so the backend can trust CF-Connecting-IP from this one address (TRUSTED_PROXY_PEERS in .env
+        # must list 10.250.250.2). The backend gets another address on this network.
+        ipv4_address: 10.250.250.2
+    depends_on:
+      qatool-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'cloudflared', 'tunnel', '--metrics', '127.0.0.1:2000', 'ready']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+
 networks:
   qatool-net:
+  # Backend <-> monitoring and nothing else. Not internal, because the monitor must reach the public
+  # frontend (and, if set, the tunnel) to check them; it has no other reason to leave the machine.
+  qatool-monitor-net:
+  # Backend <-> cloudflared and nothing else: Apayee and the other services are not on it. Not internal,
+  # because the tunnel is an outbound connection to Cloudflare. A /29 with fixed addresses (.1 gateway,
+  # .2 cloudflared, .3 and up the backend), outside Docker's default pools.
+  qatool-ingress-net:
+    ipam:
+      config:
+        - subnet: 10.250.250.0/29
 
 volumes:
   # The Claude sign-in. External: it already exists (created once, then signed in), and Compose neither
@@ -104,3 +219,7 @@ volumes:
   apayee-claude-config:
     external: true
     name: apayee-claude-config
+
+  # The private metrics socket, shared by the backend (read-write) and the monitor (read-only). Compose
+  # owns this one, so `down -v` removes it; it holds only a socket file and is recreated on the next start.
+  qatool-ops-metrics:

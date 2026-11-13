@@ -4,7 +4,8 @@ import { afterEach, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { config, redactSecrets } from '../config.js';
-import { classifyLlmError, LLM_ERROR_CATEGORIES } from '../lib/trace.js';
+import { classifyLlmError, LLM_ERROR_CATEGORIES, upstreamCodeOf } from '../lib/trace.js';
+import { publicFailure } from '../jobs/public-provider.js';
 import { RESPONSE_SCHEMA } from '../generate/contract.js';
 import { ApayeeProvider, validateApayeeSettings } from './apayee.js';
 import { startFakeApayee } from './fixtures/fake-apayee.js';
@@ -87,6 +88,24 @@ describe('what goes on the wire', () => {
       'task',
       'timeout_ms',
     ]);
+  });
+
+  it('labels the call with its pipeline step, only from the closed list the gateway accepts', async () => {
+    const fake = await gateway({ reply: answer({ ok: true }) });
+    const provider = providerFor(fake);
+
+    for (const stage of ['structure', 'generate', 'review']) {
+      await provider.generateJson({ ...REQUEST, stage });
+    }
+    // Anything else is left out, never sent: the gateway would refuse the whole request.
+    await provider.generateJson({ ...REQUEST, stage: 'structure\nINJECTED' });
+    await provider.generateJson({ ...REQUEST, stage: undefined });
+    await provider.generateJson(REQUEST);
+
+    assert.deepEqual(
+      fake.requests.map((request) => request.body.stage),
+      ['structure', 'generate', 'review', undefined, undefined, undefined]
+    );
   });
 
   it('bounds the call with LLM_TIMEOUT_MS as Apayee’s execution budget', async () => {
@@ -219,8 +238,66 @@ describe('Apayee errors become QATOOL errors', () => {
       assert.ok(error instanceof LlmError, String(error));
       assert.equal(error.code, code);
       assert.equal(error.statusCode, statusCode);
+      // The gateway's own code stays on the error, for the log; the QATOOL code is unchanged.
+      assert.equal(error.gatewayCode, apayeeCode);
+      assert.equal(upstreamCodeOf(error), apayeeCode);
     });
   }
+
+  it('keeps INVALID_PROVIDER_RESPONSE visible to the log while the visitor sentence stays generic', async () => {
+    const fake = await gateway({
+      reply: (record, response, { send, failure }) =>
+        send(
+          response,
+          502,
+          failure('INVALID_PROVIDER_RESPONSE', {
+            error: {
+              code: 'INVALID_PROVIDER_RESPONSE',
+              message: 'echoed: PRD-CONTENT-CANARY',
+              retryable: true,
+            },
+          })
+        ),
+    });
+
+    const error = await providerFor(fake)
+      .generateJson(REQUEST)
+      .catch((e) => e);
+
+    assert.equal(error.code, LLM_ERRORS.MALFORMED_OUTPUT);
+    assert.equal(error.gatewayCode, 'INVALID_PROVIDER_RESPONSE');
+    assert.ok(!error.message.includes('PRD-CONTENT-CANARY'));
+
+    // What a visitor can be told: the fixed public sentence, no gateway detail, same code.
+    const visible = publicFailure(error);
+    assert.equal(visible.code, LLM_ERRORS.MALFORMED_OUTPUT);
+    assert.equal(visible.message, 'The model returned a reply that could not be used.');
+    assert.equal(visible.statusCode, 502);
+    assert.equal(upstreamCodeOf(visible), 'INVALID_PROVIDER_RESPONSE', 'kept for the log');
+    assert.ok(!JSON.stringify({ message: visible.message, code: visible.code }).includes('Apayee'));
+  });
+
+  it('only a fixed identifier is ever logged as an upstream code', () => {
+    const tagged = (gatewayCode) => Object.assign(new Error('x'), { gatewayCode });
+
+    assert.equal(upstreamCodeOf(tagged('PROVIDER_TIMEOUT')), 'PROVIDER_TIMEOUT');
+    for (const bad of [
+      '',
+      'lower_case',
+      'HAS SPACE',
+      'X'.repeat(50),
+      'A-B',
+      42,
+      null,
+      undefined,
+      {},
+    ]) {
+      assert.equal(upstreamCodeOf(tagged(bad)), null, String(bad));
+    }
+    assert.equal(upstreamCodeOf(null), null);
+    assert.equal(upstreamCodeOf(undefined), null);
+    assert.equal(upstreamCodeOf(new Error('no code')), null);
+  });
 
   it('does not relay the message Apayee sent', async () => {
     const fake = await gateway({

@@ -45,6 +45,12 @@ export const config = {
   logLevel: process.env.LOG_LEVEL ?? 'info',
 
   /**
+   * Path of the private Unix socket that serves the job-metrics snapshot to the local ops monitor
+   * (server/ops/metrics-socket.js). Unset, the default, means the feature does not exist. Not a secret.
+   */
+  opsMetricsSocket: process.env.OPS_METRICS_SOCKET?.trim() || null,
+
+  /**
    * Public mode, the Cloudflare Access identity, the origin allowlist and every
    * resource limit (server/security/). PUBLIC_MODE is off unless set, so the
    * local workflow is unchanged. Checked by assertSecuritySettings() at startup.

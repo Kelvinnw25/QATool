@@ -165,9 +165,10 @@ describe('QATOOL pipeline against a real Apayee', { skip, timeout: 120_000 }, ()
       });
 
       // Every real schema was accepted and answered, so the transport and the
-      // schema handling are sound. The answers are empty, and QATOOL says so.
-      assert.equal(run.extract.statusCode, 200, run.extract.body);
-      assert.equal(run.extract.json().structuring.mode, 'fallback');
+      // schema handling are sound. The answers are empty, and QATOOL says so: the structuring
+      // call fails (nothing is extracted in its place) and so does generation.
+      assert.equal(run.extract.statusCode, 502, run.extract.body);
+      assert.equal(run.extract.json().error.code, 'LLM_MALFORMED_OUTPUT');
       assert.equal(run.generate.statusCode, 422);
       assert.equal(run.generate.json().error.code, 'GENERATION_EMPTY');
     } finally {

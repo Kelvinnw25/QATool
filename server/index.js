@@ -42,12 +42,17 @@ if (config.security.demoMode) {
   );
 }
 
+/** The optional private metrics socket (server/ops/metrics-socket.js); null while disabled or failed. */
+let metricsSocket = null;
+
 async function shutdown(signal) {
   app.log.info(
     { event: 'server_stopping', pid: process.pid, signal },
     `Received ${signal}, shutting down.`
   );
   try {
+    // First: the socket file goes away before the job platform stops answering.
+    await metricsSocket?.close();
     await app.close();
     process.exit(0);
   } catch (error) {
@@ -94,6 +99,36 @@ try {
     `QATOOL API listening on http://${config.host}:${config.port}`
   );
   app.log.info('Stateless: no database, no session store, nothing written to disk.');
+
+  // Optional, off unless OPS_METRICS_SOCKET is set. Started after the server is listening, and a failure
+  // here only leaves the feature off: it opens no other interface, and the API keeps running.
+  if (config.opsMetricsSocket) {
+    if (!app.jobPlatform) {
+      app.log.warn(
+        { event: 'ops_metrics_skipped' },
+        'OPS_METRICS_SOCKET is set but this mode has no job platform (PUBLIC_DEMO is off); there are no job metrics to serve.'
+      );
+    } else {
+      try {
+        const { startMetricsSocket } = await import('./ops/metrics-socket.js');
+        const { createApayeeView } = await import('./ops/apayee-view.js');
+        // The same catalog instance the app was built with (buildApp's default), so the gateway
+        // answer is the one the job platform already caches; the token stays in this process.
+        const { providerAvailability } = await import('./llm/catalog.js');
+        metricsSocket = await startMetricsSocket({
+          socketPath: config.opsMetricsSocket,
+          snapshot: () => app.jobPlatform.metrics.snapshot(),
+          apayee: createApayeeView(providerAvailability),
+          logger: app.log,
+        });
+      } catch (error) {
+        app.log.error(
+          { event: 'ops_metrics_failed' },
+          `The metrics socket is off: ${error.message ?? 'could not start'}`
+        );
+      }
+    }
+  }
 } catch (error) {
   app.log.error({ err: error }, 'Failed to start server.');
   process.exit(1);

@@ -72,8 +72,23 @@ function greedy({ prompt }) {
   };
 }
 
-/** A model that claims nothing, leaving every block to deterministic recovery. */
-const silent = () => ({ requirements: [], supporting_blocks: [] });
+/**
+ * A model that claims one block and sets the rest aside, leaving them to behavioural recovery.
+ * (A reply with no requirement at all is not an input here any more: it fails the stage.)
+ */
+const silent = ({ prompt }) => ({
+  requirements: [
+    {
+      title: 'One block',
+      source_block_ids: [String(prompt).match(/DOC-001-B\d{3}/)?.[0]],
+      test_points: [],
+      ambiguous: false,
+      conflicted: false,
+      fragmented: false,
+    },
+  ],
+  supporting_blocks: [],
+});
 
 async function structure(respond, blocks = BLOCKS) {
   const provider = new MockProvider({ responses: respond });
@@ -119,7 +134,7 @@ describe('an unread image region', () => {
     assert.match(contentOf(result.requirements), /Report format to be generated as shown below/);
   });
 
-  it('cannot enter a requirement through deterministic recovery either', async () => {
+  it('cannot enter a requirement through behavioural recovery either', async () => {
     const { result } = await structure(silent);
 
     assert.doesNotMatch(contentOf(result.requirements), /\[Image on page|was not read/);

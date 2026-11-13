@@ -56,9 +56,8 @@ export default async function pipelineRoutes(fastify) {
         );
       }
 
-      // Before any document is read: structuring absorbs a provider failure and
-      // carries on with deterministic extraction, so a chosen provider that is not
-      // there has to be refused here or the run would quietly become a different one.
+      // Before any document is read: a chosen provider that is not there has to be refused
+      // here, so the run never starts on a model nobody asked for.
       const provider = await chooseProvider(request);
 
       // File count, per-file size and TOTAL size are enforced as the bytes arrive
@@ -113,9 +112,9 @@ export default async function pipelineRoutes(fastify) {
    * page refresh never spends a model call by accident.
    *
    * Reports rather than throws: a project mid-workflow is usually incomplete,
-   * and incomplete is not the same as broken. A failed LLM review is likewise
-   * reported in `semantic.llm`, with the deterministic findings still returned,
-   * so the review can be retried on its own without regenerating anything.
+   * and incomplete is not the same as broken. A review that was asked for and
+   * fails is the opposite: the route answers with the error, never with the rule
+   * findings alone, and the same request is the retry - nothing is regenerated.
    */
   fastify.post('/api/validate', { config: { model: 'semantic' } }, async (request, reply) => {
     const canonical = requireCanonical(request.body);

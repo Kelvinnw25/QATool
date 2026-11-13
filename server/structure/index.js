@@ -1,12 +1,11 @@
 import { AppError } from '../lib/errors.js';
 import { createProvider } from '../llm/provider.js';
 import { assignBlockIds } from '../extract/blocks.js';
-import { buildRequirements } from '../extract/requirements.js';
 import { buildStructurePrompt, structureInstruction } from './prompt.js';
 import { RESPONSE_SCHEMA, structureResponse } from './contract.js';
 import { STRUCTURE_WARNINGS, reconstructRequirements, summariseSupporting } from './validate.js';
 import { recoverBehaviouralBlocks } from './recover.js';
-import { classifyLlmError, recordFacts, recordTiming, trace } from '../lib/trace.js';
+import { classifyLlmError, recordTiming, setStage, trace, upstreamCodeOf } from '../lib/trace.js';
 
 /**
  * Gemini #1: requirement structuring and test point identification.
@@ -20,17 +19,22 @@ import { classifyLlmError, recordFacts, recordTiming, trace } from '../lib/trace
  * are rebuilt from the blocks it cites, so the requirement a reviewer reads is
  * the document's own wording whatever the model said.
  *
- * Fail-soft by design. Deterministic extraction still exists and still works,
- * so a provider outage or a malformed reply costs the workflow its grouping
- * quality, not the workflow. The run continues on the deterministic
- * requirements with AI_REQUIREMENT_STRUCTURING_FAILED attached, and nothing is
- * invented to cover the gap.
+ * Fail-fast by design. There is no deterministic extraction behind this call and
+ * no second provider: if the model cannot be reached, answers too late, or
+ * sends a reply that cannot be used, this throws and the workflow stops here.
+ * Nothing downstream ever runs on requirements the model did not structure.
+ *
+ * (The `gemini_1_*` event names are the stage's original labels. Whichever
+ * provider answered is in the `provider` field; the names are kept so existing
+ * log queries keep working.)
  */
 
 /** Everything the Upload stage needs to explain what did and did not run. */
 function status(overrides = {}) {
   return {
-    mode: 'deterministic',
+    // 'ai' when the model structured the documents; 'none' when there was nothing to
+    // structure and no call was made. There is no third value.
+    mode: 'ai',
     reason: null,
     error: null,
     provider: null,
@@ -45,49 +49,25 @@ function status(overrides = {}) {
 }
 
 /**
- * The fallback, and the floor on quality.
+ * A reply the model sent that cannot be turned into requirements.
  *
- * One requirement per candidate block, exactly as extraction has always done
- * it: no grouping, no examples filtered, no test points. Worse than a good
- * structuring call and far better than nothing, which is the point.
+ * There is no fallback behind it. The structuring call decides which blocks are
+ * requirements and which are examples or background; a line-by-line reading
+ * cannot make that call, and what it produced instead (a requirement per
+ * sentence, empty "THEN the system must:" stubs, criteria lost as headings) looked
+ * like a result and was not one. A run that cannot be structured fails here, in
+ * this stage, with a code a visitor can be told and a log line an operator can
+ * use. Retrying is the user's decision.
  */
-function deterministic(parsedDocuments, reason, error = null, category = null) {
-  const { requirements } = buildRequirements(parsedDocuments);
-
-  // The event the whole fail-soft design exists for. A run that reaches here
-  // still produces output, so nothing downstream looks wrong - this line is
-  // the only place the loss of grouping quality is visible.
-  trace('deterministic_fallback_used', {
-    failed_stage: 'GEMINI_1',
-    reason,
-    error_category: category,
-    error_code: error?.code ?? null,
-    fallback_used: true,
-    fail_soft: true,
-    requirement_count: requirements.length,
-  });
-  recordFacts({
-    fallback_used: true,
-    fallback_stage: 'GEMINI_1',
-    fallback_reason: category ?? 'structuring_unusable',
-  });
-
-  return {
-    requirements,
-    testPoints: [],
-    criteria: {},
-    warnings: [
-      {
-        code: STRUCTURE_WARNINGS.AI_REQUIREMENT_STRUCTURING_FAILED,
-        document_id: null,
-        message:
-          `${reason} Requirements fall back to deterministic extraction: each candidate block ` +
-          `becomes its own requirement, examples are not filtered out, and no test points are ` +
-          `available. Review the requirement list more closely than usual.`,
-      },
-    ],
-    status: status({ mode: 'fallback', reason, error }),
-  };
+function unusableReply(reason) {
+  // Why, as a fixed word. The failure itself is traced once, by the catch below.
+  trace('structuring_reply_rejected', { reason });
+  // The model's own text is never in the error: it can quote the document.
+  return new AppError(
+    'LLM_MALFORMED_OUTPUT',
+    'The model returned a reply that could not be used.',
+    502
+  );
 }
 
 /**
@@ -99,6 +79,8 @@ function deterministic(parsedDocuments, reason, error = null, category = null) {
  * @returns {Promise<{requirements: object[], testPoints: object[], criteria: object, warnings: object[], status: object}>}
  */
 export async function structureRequirements(documents, parsedDocuments, { provider, signal } = {}) {
+  // So a run that stops in this call says so (`stage=STRUCTURE`), not whatever came before.
+  setStage('STRUCTURE');
   trace('structure_started', { document_count: parsedDocuments.length });
   const { blocks, byId } = assignBlockIds(parsedDocuments);
   trace('blocks_assigned', {
@@ -106,8 +88,16 @@ export async function structureRequirements(documents, parsedDocuments, { provid
     character_count: blocks.reduce((sum, block) => sum + (block.text?.length ?? 0), 0),
   });
 
+  // Nothing to send, so no call is made and nothing is substituted: the caller
+  // refuses an empty extraction (NO_REQUIREMENTS_EXTRACTED) with the per-document facts.
   if (blocks.length === 0) {
-    return deterministic(parsedDocuments, 'No text blocks were extracted to structure.');
+    return {
+      requirements: [],
+      testPoints: [],
+      criteria: {},
+      warnings: [],
+      status: status({ mode: 'none', reason: 'No text blocks were extracted to structure.' }),
+    };
   }
 
   const startedAt = Date.now();
@@ -133,6 +123,7 @@ export async function structureRequirements(documents, parsedDocuments, { provid
       prompt,
       schema: RESPONSE_SCHEMA,
       signal,
+      stage: 'structure',
     });
 
     recordTiming('gemini1', Date.now() - startedAt);
@@ -147,14 +138,7 @@ export async function structureRequirements(documents, parsedDocuments, { provid
     });
 
     const parsed = structureResponse.safeParse(data);
-    if (!parsed.success) {
-      return deterministic(
-        parsedDocuments,
-        'The structuring call returned JSON in the wrong shape, so none of it was used.',
-        null,
-        'parse_error'
-      );
-    }
+    if (!parsed.success) throw unusableReply('wrong_shape');
 
     const rebuilt = reconstructRequirements(parsed.data, byId);
     trace('reconstruction_completed', {
@@ -165,16 +149,8 @@ export async function structureRequirements(documents, parsedDocuments, { provid
     });
 
     // A reply that parsed but yielded nothing usable is a failure like any
-    // other. Falling through with an empty requirement list would end the
-    // workflow at the next gate with a far less helpful message.
-    if (rebuilt.requirements.length === 0) {
-      return deterministic(
-        parsedDocuments,
-        'The structuring call produced no requirement that could be rebuilt from the source blocks.',
-        null,
-        'nothing_rebuildable'
-      );
-    }
+    // other: no requirement could be rebuilt from the blocks it cited.
+    if (rebuilt.requirements.length === 0) throw unusableReply('nothing_rebuildable');
 
     // The grouping decides what is a requirement; it does not get to decide
     // what the document says. Any block it set aside that the obligation
@@ -218,36 +194,28 @@ export async function structureRequirements(documents, parsedDocuments, { provid
       }),
     };
   } catch (error) {
-    // Only controlled failures are absorbed: provider errors, missing
-    // configuration, rate limits. A programming error should fail loudly rather
-    // than be reported to the user as "structuring did not run".
-    if (!(error instanceof AppError)) throw error;
+    // Recorded, then rethrown untouched. Nothing is absorbed here: not a provider
+    // error, not a rate limit, not a reply that could not be used. The caller sees
+    // the same error it would have seen with no catch at all.
+    //
+    // A caller that cancelled is not a provider that failed; there is nothing to log.
+    if (signal?.aborted || !(error instanceof AppError)) throw error;
 
-    // A caller that cancelled is not a provider that failed. Falling back to
-    // deterministic extraction would spend the work and record a degraded run
-    // for a response nobody is waiting for.
-    if (signal?.aborted) throw error;
-
-    const category = classifyLlmError(error);
     recordTiming('gemini1', Date.now() - startedAt);
     trace('gemini_1_failed', {
       call_number: 1,
       provider: llm?.name ?? null,
       model: llm?.model ?? null,
       duration_ms: Date.now() - startedAt,
-      error_category: category,
+      error_category: classifyLlmError(error),
       error_class: error.constructor?.name ?? 'Error',
       error_code: error.code ?? null,
+      upstream_code: upstreamCodeOf(error),
       error_message: error.message,
-      fail_soft: true,
-      fallback_used: true,
+      fail_soft: false,
+      fallback_used: false,
     });
 
-    return deterministic(
-      parsedDocuments,
-      `The structuring call could not run: ${error.message}`,
-      { code: error.code, message: error.message },
-      category
-    );
+    throw error;
   }
 }

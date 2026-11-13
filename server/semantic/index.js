@@ -10,7 +10,7 @@ import {
   matchObligations,
   reviewableGaps,
 } from '../scenario/obligations.js';
-import { classifyLlmError, recordTiming, setStage, trace } from '../lib/trace.js';
+import { classifyLlmError, recordTiming, setStage, trace, upstreamCodeOf } from '../lib/trace.js';
 
 /**
  * Milestone 5: semantic validation.
@@ -29,8 +29,13 @@ import { classifyLlmError, recordTiming, setStage, trace } from '../lib/trace.js
  * nothing here blocks export - deterministic validation remains the authority
  * on structure, and a semantic finding is something for QA to look at.
  *
- * A failed LLM review is reported, not thrown: the deterministic findings are
- * still returned, and the caller can retry the review without regenerating.
+ * An LLM review that was asked for and fails is thrown, never reported as a
+ * smaller result: the caller sees the failure, and can retry the review alone
+ * without regenerating anything. With the review not requested, only the
+ * deterministic findings are returned, and the status says so.
+ *
+ * (The `gemini_3_*` event names are the stage's original labels; the provider
+ * that answered is in the `provider` field.)
  */
 
 /** Everything the Results page needs to explain what did and did not run. */
@@ -211,6 +216,7 @@ export async function reviewSemantics(
       prompt,
       schema: RESPONSE_SCHEMA,
       signal,
+      stage: 'review',
     });
 
     recordTiming('gemini3', Date.now() - startedAt);
@@ -249,17 +255,14 @@ export async function reviewSemantics(
       }),
     };
   } catch (error) {
-    // Only controlled failures are absorbed: provider errors, malformed output,
-    // missing configuration. A programming error should fail loudly, not be
-    // reported to the user as "the review did not run".
-    if (!(error instanceof AppError)) throw error;
-
-    // Cancelled, not failed: there is no one to report a failed review to.
-    if (signal?.aborted) throw error;
+    // Recorded, then rethrown untouched. A review that was asked for and did not
+    // happen is a failed stage, not a report with fewer findings: handing back the
+    // heuristics alone would present a half-reviewed project as a reviewed one.
+    //
+    // Cancelled, not failed: nothing to log for a response nobody is waiting for.
+    if (signal?.aborted || !(error instanceof AppError)) throw error;
 
     recordTiming('gemini3', Date.now() - startedAt);
-    // fail_soft: the review is advisory, so a failure here costs findings, not
-    // the run. /api/validate still returns 200 with the heuristic findings.
     trace('gemini_3_failed', {
       call_number: 3,
       provider: llm?.name ?? null,
@@ -268,21 +271,12 @@ export async function reviewSemantics(
       error_category: classifyLlmError(error),
       error_class: error.constructor?.name ?? 'Error',
       error_code: error.code ?? null,
+      upstream_code: upstreamCodeOf(error),
       error_message: error.message,
-      fail_soft: true,
+      fail_soft: false,
       fallback_used: false,
     });
 
-    return {
-      issues: [...heuristicIssues].sort(byUrgency),
-      status: status({
-        heuristics: 'completed',
-        llm: 'failed',
-        error: { code: error.code, message: error.message },
-        provider: llm?.name ?? null,
-        model: llm?.model ?? null,
-        duration_ms: Date.now() - startedAt,
-      }),
-    };
+    throw error;
   }
 }

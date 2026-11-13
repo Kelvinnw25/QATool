@@ -29,19 +29,19 @@ repositories), how to run it, and where the detailed documents are. Working cont
 
 ## Documentation map
 
-| Document                                                       | What it is for                                                                              |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| [`CLAUDE.md`](CLAUDE.md)                                       | Short AI-development context: invariants and rules that are easy to break                   |
-| [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md)             | Detailed behaviour reference for the local tool and the pipeline (23 sections)              |
-| [`docs/DOCKER_LOCAL.md`](docs/DOCKER_LOCAL.md)                 | The three-container Docker stack, networking, the one-time Claude sign-in, health checks    |
-| [`docs/PUBLIC_DEMO_JOBS.md`](docs/PUBLIC_DEMO_JOBS.md)         | The public demo: Turnstile, tickets, the async job API, the frontend                        |
-| [`docs/PUBLIC_DEMO_SECURITY.md`](docs/PUBLIC_DEMO_SECURITY.md) | Security controls for both public modes: limits, headers, Compose hardening                 |
-| [`docs/STAGING_DEPLOYMENT.md`](docs/STAGING_DEPLOYMENT.md)     | The free staging runbook: Vercel + Cloudflare Quick Tunnel; custom domain as an alternative |
-| [`docs/ENVIRONMENT_SNAPSHOT.md`](docs/ENVIRONMENT_SNAPSHOT.md) | Versions, lockfile hash and test baseline last verified; recovery procedure                 |
-| [`docs/edge-cases.md`](docs/edge-cases.md)                     | Why Edge cases are mapped to Positive/Negative on export                                    |
-| [`docs/archive/`](docs/archive/)                               | Historical design documents (the unimplemented QAI blueprints), kept as written             |
-| [`fixtures/README.md`](fixtures/README.md)                     | Which sample PDFs tests read and which are manual samples                                   |
-| Apayee: `../Apayee/README.md`                                  | The separate gateway repository (its own CLAUDE.md, README and `docs/`)                     |
+| Document                                                       | What it is for                                                                                                           |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [`CLAUDE.md`](CLAUDE.md)                                       | Short AI-development context: invariants and rules that are easy to break                                                |
+| [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md)             | Detailed behaviour reference for the local tool and the pipeline (23 sections)                                           |
+| [`docs/DOCKER_LOCAL.md`](docs/DOCKER_LOCAL.md)                 | The three-container Docker stack, networking, the one-time Claude sign-in, health checks                                 |
+| [`docs/PUBLIC_DEMO_JOBS.md`](docs/PUBLIC_DEMO_JOBS.md)         | The public demo: Turnstile, tickets, the async job API, the frontend                                                     |
+| [`docs/PUBLIC_DEMO_SECURITY.md`](docs/PUBLIC_DEMO_SECURITY.md) | Security controls for both public modes: limits, headers, Compose hardening                                              |
+| [`docs/STAGING_DEPLOYMENT.md`](docs/STAGING_DEPLOYMENT.md)     | The staging runbook behind `scripts/start-qatool.ps1`: Vercel + Cloudflare Quick Tunnel; custom domain as an alternative |
+| [`docs/ENVIRONMENT_SNAPSHOT.md`](docs/ENVIRONMENT_SNAPSHOT.md) | Versions, lockfile hash and test baseline last verified; recovery procedure                                              |
+| [`docs/edge-cases.md`](docs/edge-cases.md)                     | Why Edge cases are mapped to Positive/Negative on export                                                                 |
+| [`docs/archive/`](docs/archive/)                               | Historical design documents (the unimplemented QAI blueprints), kept as written                                          |
+| [`fixtures/README.md`](fixtures/README.md)                     | Which sample PDFs tests read and which are manual samples                                                                |
+| Apayee: `../Apayee/README.md`                                  | The separate gateway repository (its own CLAUDE.md, README and `docs/`)                                                  |
 
 ## Features
 
@@ -114,6 +114,10 @@ and never blocks the run. Details: [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATIO
 | `mock`   | `LLM_PROVIDER=mock`                          | Operator/test setting only; never offered in the UI. Runs the whole flow offline.         |
 | `apayee` | `LLM_PROVIDER=apayee`                        | Server-wide default through Apayee; the UI shows it as "Server default (Apayee gateway)". |
 
+**No fallbacks.** A model call that fails fails its stage: there is no deterministic extraction, no partial result and no
+automatic switch to another provider (the Gemini adapter is reachable only when the owner picks it, for local use). The public
+demo is Claude only, through Apayee. A failed job says which step failed and offers an explicit retry; nothing runs again by itself.
+
 **Apayee** is a separate private gateway in its own repository, expected at `../Apayee` (listening on
 `http://127.0.0.1:4100` when run on the host). QATOOL stays the owner of prompts, schemas, validation and
 export; Apayee only runs the inference request by driving a locally signed-in Claude Code CLI. QATOOL
@@ -149,10 +153,11 @@ Vercel (static React build, no secret)            Windows PC (Docker, private)
 - **Visitors are identified only by the ticket's `sid`.** There are no accounts and no cookies. One live job per ticket; jobs
   run FIFO on `JOB_WORKERS` (default 1) with `JOB_MAX_PENDING` waiting. Jobs and counters live in memory and are lost on restart.
 - **Apayee stays private.** It publishes no host port; only the backend reaches it over the Compose network.
-- **Staging** runs the backend in Docker on this PC behind a free Cloudflare Quick Tunnel, with the frontend at
-  `https://qatool-staging.vercel.app`. The tunnel's address changes on every restart, which needs a Vercel variable update and a redeploy;
-  the Vercel page stays up while the PC, Docker or the tunnel is off. Runbook: [`docs/STAGING_DEPLOYMENT.md`](docs/STAGING_DEPLOYMENT.md).
-  Security controls: [`docs/PUBLIC_DEMO_SECURITY.md`](docs/PUBLIC_DEMO_SECURITY.md).
+- **Staging** runs the backend in Docker on this PC behind a free Cloudflare Quick Tunnel (a `cloudflared` Docker service), with the frontend at
+  `https://qatool-staging.vercel.app`. **One command starts all of it**, `.\scripts\start-qatool.ps1` (see "Start and stop public staging" below):
+  it reuses a working tunnel or makes a new one, verifies it, and updates and redeploys Vercel only when the tunnel's address changed (a Quick
+  Tunnel gets a new address on every start). The Vercel page stays up while the PC, Docker or the tunnel is off.
+  Runbook: [`docs/STAGING_DEPLOYMENT.md`](docs/STAGING_DEPLOYMENT.md). Security controls: [`docs/PUBLIC_DEMO_SECURITY.md`](docs/PUBLIC_DEMO_SECURITY.md).
 
 ## Repository layout
 
@@ -160,10 +165,11 @@ Vercel (static React build, no secret)            Windows PC (Docker, private)
 QATOOL/
   README.md, CLAUDE.md        Overview/setup, and context for Claude Code
   package.json                Scripts; npm workspace "web"
-  compose.yaml, Dockerfile.*  Optional local Docker stack (UI, API, Apayee); .dockerignore is an allow-list
+  compose.yaml, Dockerfile.*  Docker stack (UI, API, Apayee, monitoring dashboard, public Quick Tunnel); .dockerignore is an allow-list
   .env.example                Every supported variable, no secrets (copy to .env)
   vercel.json, .vercelignore  Frontend deployment settings for Vercel; what the CLI may upload
   deploy/                     Copy-from checklists for the staging variables; cloudflared config template
+  ops/monitoring/             Local read-only operations dashboard (compose service qatool-monitoring, 127.0.0.1:3301); not part of the app, see its README
   server/                     Fastify API and the whole pipeline
     index.js, app.js          Entry point; app factory, error handling, static serving
     config.js                 Environment parsing + redactSecrets()
@@ -184,7 +190,7 @@ QATOOL/
     testing/no-network.js     Makes any non-localhost request throw during tests
   web/                        React UI (src/stages, components, state, session, jobs, api.js, pipeline.js, config.js)
   templates/                  sit-script-template.xlsx (the office template, never modified)
-  scripts/                    dev.js, llm-smoke.js, e2e-live.js, qa-eval/ (live-model evaluation tools)
+  scripts/                    start-qatool.ps1 / stop-qatool.ps1 (public staging; logic and tests in staging/), dev.js, llm-smoke.js, e2e-live.js, qa-eval/
   fixtures/prd/               Sample PDFs (two are read by tests; see fixtures/README.md)
   docs/                       Reference documents (see the map above); archive/ holds the QAI blueprints;
                               HUMAN_REVIEW_QUEUE.csv is the QA team's open review-queue data (Indonesian)
@@ -236,7 +242,7 @@ winget install --id Docker.DockerDesktop       # then start it once and accept i
 wsl --install                                  # only if Docker Desktop asks for WSL 2; reboot when told to
 ```
 
-Optional, for the public staging path only: `npm i -g vercel` (Vercel CLI) and `winget install --id Cloudflare.cloudflared`.
+Optional, for the public staging path only: `npm i -g vercel` (Vercel CLI, run on the PC; no `cloudflared` is needed, the tunnel is a Docker service).
 Check with `git --version`, `node -v`, `npm -v`, `docker version` (client **and** server must answer; if not, Docker Desktop is not running yet).
 
 ### 3. Clone both repositories
@@ -258,7 +264,7 @@ notepad .env
 
 In the editor set `APAYEE_AUTH_TOKEN=` (paste the token, then `Set-Clipboard -Value $null`), `APAYEE_PROVIDER=claude`,
 `APAYEE_CLAUDE_EXPERIMENTAL=true`, and, only after you have checked your own plan in your Claude account settings,
-`APAYEE_CLAUDE_SUBSCRIPTION_CONFIRMED=true` (your attestation; Apayee cannot verify a plan). Leave `APAYEE_MAX_CONCURRENT` unset (default 1).
+`APAYEE_CLAUDE_SUBSCRIPTION_CONFIRMED=true` (your attestation; Apayee cannot verify a plan). Leave `APAYEE_MAX_CONCURRENT` unset (default 1), or set it to 2 together with `JOB_WORKERS=2` in QATOOL's `.env` (staging runs 2; the start script accepts 1 or 2, equal on both sides).
 For standalone (non-Docker) use see the Apayee README. Optional: `npm ci` and `npm test` in `Apayee` (offline; no Claude call).
 
 ### 5. Create QATOOL's `.env`, install, test, build
@@ -312,15 +318,30 @@ use either the Docker stack **or** `npm run dev`, not both. For Apayee on the ho
 ### 8. Optional: the public staging demo
 
 Needs a Cloudflare account (Turnstile widget), a Vercel account, `vercel login` and `vercel link` (choose the existing `qatool-staging` project;
-`.vercel/` is Git-ignored and per machine), the four Production variables, and a **new** Quick Tunnel address every time (update
-`VITE_API_BASE_URL`, then redeploy). All steps: [`docs/STAGING_DEPLOYMENT.md`](docs/STAGING_DEPLOYMENT.md).
+`.vercel/` is Git-ignored and per machine), the three fixed Production variables, `PUBLIC_DEMO=true` in `.env`, and `TRUSTED_PROXY_PEERS`
+including `10.250.250.2` (the tunnel container). Then:
+
+#### Start and stop public staging
+
+```powershell
+.\scripts\start-qatool.ps1      # starts the stack and the tunnel, verifies it, syncs and redeploys Vercel only if the address changed
+.\scripts\stop-qatool.ps1       # docker compose stop (add -TunnelOnly to stop just the public tunnel); nothing is deleted
+```
+
+The start script is safe to run again at any time (a healthy stack, a working tunnel and an up-to-date frontend are left alone) and is what you
+run after a reboot. It checks, before starting anything, that Docker runs, the Vercel CLI is logged in and linked to exactly `qatool-staging`, and
+`.env` is the public demo. It deploys to production only when the live frontend does not already use the verified tunnel address, and stops at the
+first failing step, naming it. If PowerShell refuses scripts: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Its small, non-secret state
+is in `.qatool-local/` (Git-ignored). Options (`-NoDeploy`, `-ForceTunnel`, `-ForceDeploy`), what each step does, and recovery:
+[`docs/STAGING_DEPLOYMENT.md`](docs/STAGING_DEPLOYMENT.md) section 9. Use the script rather than a bare `docker compose up -d` for staging: the tunnel
+is a Compose service, and a backend in local mode (no authentication) refuses any request that comes through it.
 
 ### What to recreate when moving to another computer
 
 Everything in Git comes back with the two clones. Recreate: both `.env` files (a fresh `APAYEE_AUTH_TOKEN` is fine, if both sides match), the
-`apayee-claude-config` volume and the Claude sign-in, Docker images (`docker compose up -d --build`), Vercel CLI login and `vercel link`, and
-`cloudflared`. The Vercel variables and the Turnstile widget live in your accounts and carry over; the Quick Tunnel address does not. Uncommitted
-work does not travel: commit and push first.
+`apayee-claude-config` volume and the Claude sign-in, Docker images (`docker compose up -d --build`), and the Vercel CLI login and `vercel link`.
+The Vercel variables and the Turnstile widget live in your accounts and carry over; the Quick Tunnel address does not (the start script makes a new
+one and updates Vercel). Uncommitted work does not travel: commit and push first.
 
 ## Environment variables
 
@@ -371,29 +392,36 @@ Frontend (build time, all public, `web/.env.example`): `VITE_PUBLIC_DEMO`, `VITE
 | `npm run qa:eval`                 | Quality evaluation over synthetic documents (real provider calls)      |
 | `npm run format` / `format:check` | Prettier write / check                                                 |
 
+Watching a live demo: the local-only operations dashboard in [`ops/monitoring/`](ops/monitoring/README.md) is a normal
+service of the Docker stack, so `docker compose up -d` starts it and it opens at **http://127.0.0.1:3301** (published on
+this PC's loopback only). It is read-only, holds no secret, has no Docker access and no dependencies, and is not part of
+the app. It needs `OPS_METRICS_SOCKET=/run/qatool-ops/metrics.sock` and `PUBLIC_DEMO=true` in `.env` for the job
+numbers; per-container CPU and memory are not available in the container (use host mode,
+`npm --prefix ops/monitoring start`, for those). Details, ports and troubleshooting are in its README.
+
 Production-style run on the host: `npm run build`, then `NODE_ENV=production npm start` (PowerShell:
 `$env:NODE_ENV='production'; npm start`). Under `npm run dev`, React StrictMode runs each UI processing phase twice, so a development run makes two
 model calls per stage; a production build makes one. `docker compose` commands are in [`docs/DOCKER_LOCAL.md`](docs/DOCKER_LOCAL.md).
 
 ## Troubleshooting
 
-| Symptom                                                  | Cause and fix                                                                                                     |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `npm run dev` stops at a Node version error              | Install Node >= 22.13.                                                                                            |
-| `docker` says it cannot connect to the API               | Docker Desktop is not running. Start it and wait until `docker version` shows a server.                           |
-| `docker compose up` fails on a missing volume            | `docker volume create apayee-claude-config` (the volume is `external`, so Compose will not create it).            |
-| `env file ... .env not found`                            | Create `QATool/.env` and `Apayee/.env` from their `.env.example` files.                                           |
-| UI loads but requests fail with an empty 500             | The API is not up yet or crashed; `dev.js` normally waits for `/api/health`. Check the API terminal.              |
-| Generation fails with an LLM error and no key is set     | `LLM_PROVIDER` is `gemini` but `GEMINI_API_KEY` is empty. Set the key or use `LLM_PROVIDER=mock`.                 |
-| Gemini returns 429 or 503                                | Free tier is 20 requests/day/model, and a 503 still consumes one. Wait; do not retry in a loop.                   |
-| "Claude via Apayee" is greyed out                        | Apayee is offline, wrong token, not signed in, or not running the `claude` provider. The UI shows the reason.     |
-| Apayee rejects the server's credentials                  | `APAYEE_TOKEN` differs from `APAYEE_AUTH_TOKEN`. Make them equal, then recreate the containers.                   |
-| Structuring warning "deterministic extraction"           | The model call failed or returned nothing usable; extraction continued without the model.                         |
-| Server fails at startup with an Apayee URL/token message | A bad `APAYEE_BASE_URL`, a malformed token, or a remote URL without `APAYEE_TOKEN`.                               |
-| `npm test` fails on a PDF path                           | The two `PRD_*` PDFs must stay in `fixtures/prd/`.                                                                |
-| Production server shows no UI                            | Run `npm run build` and start with `NODE_ENV=production`.                                                         |
-| Port 3001 or 5173 already in use                         | Stop the other process (the Docker stack and `npm run dev` share both ports).                                     |
-| The public page says the demo service cannot be reached  | Docker, the backend or the Quick Tunnel is down, or the tunnel address changed: see `docs/STAGING_DEPLOYMENT.md`. |
+| Symptom                                                               | Cause and fix                                                                                                                                   |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev` stops at a Node version error                           | Install Node >= 22.13.                                                                                                                          |
+| `docker` says it cannot connect to the API                            | Docker Desktop is not running. Start it and wait until `docker version` shows a server.                                                         |
+| `docker compose up` fails on a missing volume                         | `docker volume create apayee-claude-config` (the volume is `external`, so Compose will not create it).                                          |
+| `env file ... .env not found`                                         | Create `QATool/.env` and `Apayee/.env` from their `.env.example` files.                                                                         |
+| UI loads but requests fail with an empty 500                          | The API is not up yet or crashed; `dev.js` normally waits for `/api/health`. Check the API terminal.                                            |
+| Generation fails with an LLM error and no key is set                  | `LLM_PROVIDER` is `gemini` but `GEMINI_API_KEY` is empty. Set the key or use `LLM_PROVIDER=mock`.                                               |
+| Gemini returns 429 or 503                                             | Free tier is 20 requests/day/model, and a 503 still consumes one. Wait; do not retry in a loop.                                                 |
+| "Claude via Apayee" is greyed out                                     | Apayee is offline, wrong token, not signed in, or not running the `claude` provider. The UI shows the reason.                                   |
+| Apayee rejects the server's credentials                               | `APAYEE_TOKEN` differs from `APAYEE_AUTH_TOKEN`. Make them equal, then recreate the containers.                                                 |
+| Extraction fails: "The model returned a reply that could not be used" | The structuring call answered with something that could not be turned into requirements. Nothing is extracted in its place; run the step again. |
+| Server fails at startup with an Apayee URL/token message              | A bad `APAYEE_BASE_URL`, a malformed token, or a remote URL without `APAYEE_TOKEN`.                                                             |
+| `npm test` fails on a PDF path                                        | The two `PRD_*` PDFs must stay in `fixtures/prd/`.                                                                                              |
+| Production server shows no UI                                         | Run `npm run build` and start with `NODE_ENV=production`.                                                                                       |
+| Port 3001 or 5173 already in use                                      | Stop the other process (the Docker stack and `npm run dev` share both ports).                                                                   |
+| The public page says the demo service cannot be reached               | Docker, the backend or the Quick Tunnel is down, or the tunnel address changed: see `docs/STAGING_DEPLOYMENT.md`.                               |
 
 ## Project status
 
@@ -404,7 +432,9 @@ model calls per stage; a production build makes one. `docker compose` commands a
   run `npm test` for the current result.
 - **Staging:** the frontend is deployed at `https://qatool-staging.vercel.app` and a browser Turnstile session through a Quick Tunnel has been
   verified. **A full real generation and export run through the browser has not yet been confirmed**, and real model run time and memory under load
-  are unmeasured. The stack runs only while this PC, Docker, the backend and a tunnel are up.
+  are unmeasured. The stack runs only while this PC, Docker, the backend and the tunnel are up; `.\scripts\start-qatool.ps1` brings all of that up and
+  keeps Vercel in step with the tunnel's address. A Quick Tunnel is a temporary demo transport (no uptime promise, a new address on every start); a named
+  tunnel with a domain is the stable alternative (`docs/STAGING_DEPLOYMENT.md` section 15).
 - **Specified, not implemented:** the QAI P0 target architecture (two LLM calls, run-scoped artifact storage, no obligation engine, red highlighting
   for rows needing review) in [`docs/archive/QAI_Blueprint_v4_P0_Refinement.md`](docs/archive/QAI_Blueprint_v4_P0_Refinement.md).
 - **Known limitations:** Gemini free-tier quota; large documents truncate at 400 blocks / 120,000 characters; local mode has no authentication and plain

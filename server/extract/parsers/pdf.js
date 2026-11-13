@@ -401,7 +401,7 @@ export async function parsePdf(buffer, documentId, limits = config.security.limi
  * candidate it is null too.
  *
  * Only the section changes. Blocks stay in stream order, deliberately: the
- * fallback's dedup context is the heading occurrence a block follows, and
+ * line-by-line selection's dedup context is the heading occurrence a block follows, and
  * moving a block into another heading's run would let it merge with text
  * there - measured on a real PRD, where a new scenario's "THEN the system must
  * fulfill:" moved under the previous scenario's and disappeared. Headings,

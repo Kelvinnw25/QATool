@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
+import { AppError } from '../lib/errors.js';
 import { structureRequirements } from './index.js';
 import { STRUCTURE_WARNINGS } from './validate.js';
 import { acceptTestPoints, testPointsForPrompt } from './test-points.js';
@@ -20,7 +24,7 @@ import { LlmError, LLM_ERRORS } from '../llm/provider.js';
  *
  * So these tests are mostly about what the model is NOT allowed to do. It
  * groups and classifies; it never writes the text, the ids or the references,
- * and when it fails the workflow keeps going on deterministic extraction.
+ * and when it fails the stage fails: nothing is extracted in its place.
  */
 
 const DOCUMENTS = [
@@ -405,55 +409,127 @@ describe('test points and flags', () => {
   });
 });
 
-// --- I: fail-soft -------------------------------------------------------------------
+// --- I: fail-fast -------------------------------------------------------------------
 
-describe('failing soft', () => {
+describe('failing fast', () => {
   /**
-   * Deterministic extraction is the floor, not a fallback nobody maintains: it
-   * is the same code that ran before this stage existed. Losing the structuring
-   * call costs grouping quality, never the workflow.
+   * There is no deterministic extraction behind the structuring call and no second
+   * provider. Whatever goes wrong with the call, the stage throws and returns no
+   * requirements: a result built from anything but the model's grouping would look
+   * like a result and not be one.
    */
-  it('falls back to deterministic extraction when the provider is unavailable', async () => {
-    const result = await structureRequirements(DOCUMENTS, parsedDocument(GWT_BLOCKS), {
-      provider: new MockProvider({
-        failWith: new LlmError(LLM_ERRORS.UNAVAILABLE, 'Provider is down.', 503),
-      }),
-    });
+  const failing = async (provider) => {
+    let thrown;
+    try {
+      await structureRequirements(DOCUMENTS, parsedDocument(GWT_BLOCKS), { provider });
+    } catch (error) {
+      thrown = error;
+    }
+    return thrown;
+  };
 
-    assert.ok(result.requirements.length > 0, 'the workflow continues');
-    assert.equal(result.status.mode, 'fallback');
-    assert.deepEqual(result.testPoints, [], 'no test points are invented');
-    assert.ok(
-      result.warnings.some(
-        (warning) => warning.code === STRUCTURE_WARNINGS.AI_REQUIREMENT_STRUCTURING_FAILED
-      )
+  for (const [name, code, status] of [
+    ['unavailable', LLM_ERRORS.UNAVAILABLE, 503],
+    ['rate limited', LLM_ERRORS.RATE_LIMITED, 429],
+    ['too slow', LLM_ERRORS.TIMEOUT, 504],
+    ['refusing', LLM_ERRORS.REFUSED, 502],
+    ['malformed', LLM_ERRORS.MALFORMED_OUTPUT, 502],
+  ]) {
+    it(`throws the provider's error, untouched, when the provider is ${name}`, async () => {
+      const original = new LlmError(code, 'Provider said no.', status);
+      const thrown = await failing(new MockProvider({ failWith: original }));
+
+      assert.equal(thrown, original, 'the very error the provider raised');
+    });
+  }
+
+  it('calls the provider once and nothing else when it fails', async () => {
+    const provider = new MockProvider({
+      failWith: new LlmError(LLM_ERRORS.UNAVAILABLE, 'Provider is down.', 503),
+    });
+    await failing(provider);
+
+    assert.equal(provider.calls.length, 1, 'no retry, no second attempt');
+  });
+
+  it('throws when the reply is the wrong shape', async () => {
+    await assert.rejects(
+      () => structure({ nonsense: true }),
+      (error) =>
+        error instanceof AppError &&
+        error.code === 'LLM_MALFORMED_OUTPUT' &&
+        error.statusCode === 502
     );
   });
 
-  it('falls back when the reply is the wrong shape', async () => {
-    const result = await structure({ nonsense: true });
-
-    assert.ok(result.requirements.length > 0);
-    assert.equal(result.status.mode, 'fallback');
+  it('throws when nothing could be rebuilt from the reply', async () => {
+    await assert.rejects(
+      () =>
+        structure({
+          requirements: [
+            {
+              title: 'Invented',
+              source_block_ids: ['DOC-001-B999'],
+              test_points: [],
+              ambiguous: false,
+              conflicted: false,
+              fragmented: false,
+            },
+          ],
+          supporting_blocks: [],
+        }),
+      (error) => error instanceof AppError && error.code === 'LLM_MALFORMED_OUTPUT'
+    );
   });
 
-  it('falls back when nothing could be rebuilt from the reply', async () => {
-    const result = await structure({
-      requirements: [
-        {
-          title: 'Invented',
-          source_block_ids: ['DOC-001-B999'],
-          test_points: [],
-          ambiguous: false,
-          conflicted: false,
-          fragmented: false,
-        },
-      ],
-      supporting_blocks: [],
-    });
+  it('throws when the reply names no requirement at all', async () => {
+    await assert.rejects(
+      () => structure({ requirements: [], supporting_blocks: [] }),
+      (error) => error instanceof AppError && error.code === 'LLM_MALFORMED_OUTPUT'
+    );
+  });
 
-    assert.equal(result.status.mode, 'fallback');
-    assert.ok(result.requirements.length > 0, 'deterministic extraction still produced some');
+  it('does not put the model’s reply in the error it throws', async () => {
+    const leak = 'CONFIDENTIAL-ACCOUNT-4417';
+    await assert.rejects(
+      () => structure({ nonsense: leak }),
+      (error) => {
+        assert.doesNotMatch(JSON.stringify({ ...error, message: error.message }), /CONFIDENTIAL/);
+        return true;
+      }
+    );
+  });
+
+  it('makes no call and substitutes nothing when there is no text to structure', async () => {
+    const provider = new MockProvider({ responses: reply() });
+    const result = await structureRequirements(DOCUMENTS, parsedDocument([]), { provider });
+
+    assert.equal(provider.calls.length, 0);
+    assert.deepEqual(result.requirements, []);
+    assert.equal(result.status.mode, 'none');
+  });
+
+  it('has no deterministic extraction left to fall back to', () => {
+    // buildRequirements still exists for parser tests; nothing under server/ imports it
+    // except tests and this fixture. A new production import would bring the fallback back.
+    const offenders = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== 'node_modules') walk(path);
+        } else if (/\.js$/.test(entry.name) && !/\.test\.js$/.test(entry.name)) {
+          if (/buildRequirements/.test(readFileSync(path, 'utf8'))) offenders.push(path);
+        }
+      }
+    };
+    walk(fileURLToPath(new URL('..', import.meta.url)));
+
+    const allowed = ['requirements.js', 'line-by-line.js'];
+    assert.deepEqual(
+      offenders.filter((path) => !allowed.some((name) => path.endsWith(name))),
+      []
+    );
   });
 
   it('lets a programming error surface instead of reporting it as a failed call', async () => {

@@ -7,6 +7,7 @@ import { buildSampleCanonical } from '../export/fixtures/sample-canonical.js';
 import { buildDocx } from '../extract/fixtures/build.js';
 import { sampleCanonicalInput, sampleLlmResponse } from '../generate/fixtures/sample-input.js';
 import { providerAvailability } from '../llm/catalog.js';
+import { scriptedReply } from '../llm/fixtures/scripted-replies.js';
 import {
   closedPort,
   generateReply,
@@ -271,7 +272,7 @@ describe('routing', () => {
           ? { issues: [] }
           : schema.includes('test_cases')
             ? sampleLlmResponse()
-            : {};
+            : scriptedReply(record.body);
         return generateReply(record.body.request_id, result, { provider: 'claude' });
       },
     });

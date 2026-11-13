@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { structureRequirements } from './index.js';
-import { extractDocuments, WARNING_CODES } from '../extract/index.js';
+import { WARNING_CODES } from '../extract/index.js';
+import { extractLineByLine } from '../extract/fixtures/line-by-line.js';
 import { deriveCoverageObligations, promptedObligations } from '../scenario/obligations.js';
 import { deriveChecklist } from '../scenario/checklist.js';
 import { buildPrompt, systemInstruction } from '../generate/prompt.js';
@@ -133,7 +134,10 @@ const grouped = (title, ids) => ({
   fragmented: false,
 });
 
-/** Structuring replies: everything in one requirement, one per document, and none at all. */
+/**
+ * Structuring replies: everything in one requirement, one per document, and one block only
+ * (the rest left to behavioural recovery). A reply with no requirement fails the stage.
+ */
 const MODELS = {
   'one requirement for everything': ({ prompt }) => ({
     requirements: [grouped('Auto-Generate Daily Settlement Report', idsIn(prompt))],
@@ -150,7 +154,10 @@ const MODELS = {
       .filter((requirement) => requirement.source_block_ids.length > 0),
     supporting_blocks: [],
   }),
-  'no structuring at all': () => ({ requirements: [], supporting_blocks: [] }),
+  'one block only': ({ prompt }) => ({
+    requirements: [grouped('One block', idsIn(prompt).slice(0, 1))],
+    supporting_blocks: [],
+  }),
 };
 
 /** Runs structuring, derivation and the generation prompt, as the pipeline does. */
@@ -483,7 +490,7 @@ const unread = (result) =>
 
 describe('what QA is told about a picture', () => {
   it('names the picture nobody read, by page and lead-in', async () => {
-    const result = await extractDocuments([SPEC]);
+    const result = await extractLineByLine([SPEC]);
     const [warning, ...rest] = unread(result);
 
     assert.ok(warning, 'the gap is reported');
@@ -494,7 +501,7 @@ describe('what QA is told about a picture', () => {
   });
 
   it('names what a transcriber declared unreadable, rather than counting it silently', async () => {
-    const result = await extractDocuments([SPEC, sidecar({ unreadable: UNREADABLE })]);
+    const result = await extractLineByLine([SPEC, sidecar({ unreadable: UNREADABLE })]);
     const declared = unread(result).filter((warning) => warning.document_id === 'DOC-002');
 
     assert.equal(declared.length, 1, JSON.stringify(unread(result)));
@@ -506,7 +513,7 @@ describe('what QA is told about a picture', () => {
   });
 
   it('still uses what the partial transcription did read', async () => {
-    const result = await extractDocuments([SPEC, sidecar({ unreadable: UNREADABLE })]);
+    const result = await extractLineByLine([SPEC, sidecar({ unreadable: UNREADABLE })]);
     const text = result.requirements.map((requirement) => requirement.description).join('\n');
 
     assert.match(text, /DD-MMM-YY/);
@@ -515,7 +522,7 @@ describe('what QA is told about a picture', () => {
   });
 
   it('adds nothing for a transcription that declares no gap', async () => {
-    const result = await extractDocuments([SPEC, sidecar()]);
+    const result = await extractLineByLine([SPEC, sidecar()]);
 
     assert.deepEqual(
       unread(result).filter((warning) => warning.document_id === 'DOC-002'),
@@ -546,10 +553,10 @@ describe('a requirement that refers to a picture', () => {
     });
   }
 
-  it('is kept as a requirement when structuring leaves it to recovery', async () => {
+  it('is kept as a requirement when the model cites it', async () => {
     const statement = 'The confirmation screen must show the QR code as illustrated in Figure 2.';
     const { requirements } = await pipeline(
-      MODELS['no structuring at all'],
+      MODELS['one block only'],
       parsed([
         { kind: 'paragraph', text: statement, page: 3 },
         { ...pageBlocks()[PAGE_TEXT.length], page: 3 },

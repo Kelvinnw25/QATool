@@ -133,15 +133,13 @@ function summarisePhase(run, logger) {
   if (run.summarised) return;
   run.summarised = true;
 
-  const degraded = !run.failure && run.facts.fallback_used === true;
-  const status = run.failure ? 'FAILED' : degraded ? 'DEGRADED' : 'SUCCESS';
-
+  // Two outcomes. A job that failed a stage is FAILED, whichever stage; there is no
+  // in-between for a result that was produced with something missing.
   logger?.info?.(
     summarise(run, {
-      status,
-      reason: run.failure?.reason ?? (degraded ? run.facts.fallback_reason : null),
-      failSoft: run.failure ? false : degraded ? true : null,
-      stage: degraded ? run.facts.fallback_stage : null,
+      status: run.failure ? 'FAILED' : 'SUCCESS',
+      reason: run.failure?.reason ?? null,
+      failSoft: run.failure ? false : null,
     })
   );
 }

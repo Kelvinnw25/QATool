@@ -175,7 +175,7 @@ describe('failures through the gateway behave like any other provider’s', () =
     return settings;
   };
 
-  it('structuring fails soft: extraction still succeeds on the deterministic fallback', async () => {
+  it('structuring fails fast: extraction fails, and no requirement is produced in its place', async () => {
     const settings = await unreachable();
     const app = buildApp();
     open.push({ close: () => app.close() });
@@ -188,13 +188,11 @@ describe('failures through the gateway behave like any other provider’s', () =
       })
     );
 
-    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.statusCode, 502, response.body);
     const body = response.json();
-    assert.equal(body.structuring.mode, 'fallback');
-    assert.ok(body.requirements.length > 0);
-    assert.ok(
-      body.warnings.some((warning) => warning.code === 'AI_REQUIREMENT_STRUCTURING_FAILED')
-    );
+    assert.equal(body.error.code, 'LLM_UNAVAILABLE');
+    assert.equal(body.requirements, undefined, 'nothing was extracted in the model’s place');
+    assert.equal(body.structuring, undefined);
   });
 
   it('generation fails with a controlled error and leaves the request alone', async () => {
@@ -212,7 +210,7 @@ describe('failures through the gateway behave like any other provider’s', () =
     assert.match(response.json().error.message, /Apayee/);
   });
 
-  it('the semantic review is reported, not thrown, when the gateway is busy', async () => {
+  it('the semantic review fails, rather than returning the rule findings alone, when the gateway is busy', async () => {
     const fake = await gateway();
     const first = await withLlm(apayeeSettings(fake), runPipeline);
     const { canonical } = first;
@@ -226,9 +224,9 @@ describe('failures through the gateway behave like any other provider’s', () =
       app.inject({ method: 'POST', url: '/api/validate?semantic=true', payload: canonical })
     );
 
-    assert.equal(response.statusCode, 200, response.body);
-    assert.equal(response.json().semantic.llm, 'failed');
-    assert.equal(response.json().semantic.error.code, 'LLM_UNAVAILABLE');
+    assert.equal(response.statusCode, 503, response.body);
+    assert.equal(response.json().error.code, 'LLM_UNAVAILABLE');
+    assert.equal(response.json().semantic, undefined);
   });
 
   it('an authentication failure is reported as such and never echoes the token', async () => {

@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { createAccessHook, createAccessKeys } from './access.js';
 import { createModelGate } from './gate.js';
 import { createSecurityHeaders } from './headers.js';
+import { createLocalModeGuard } from './local-guard.js';
 import { createClientAddress } from './network.js';
 import { corsOptions, createOriginHook } from './origin.js';
 import { SlidingWindowLimiter } from './limiter.js';
@@ -120,6 +121,8 @@ export function registerSecurity(app, { security, accessKeys, now, siteverify, m
         createTicketHook({ tickets, clientAddress, metrics, limiter: general })
       );
     } else {
+      // Local mode has no authentication, so it must never serve traffic that arrived through the tunnel.
+      if (!exposed) app.addHook('onRequest', createLocalModeGuard());
       app.addHook('onRequest', gate.rateHook);
     }
 

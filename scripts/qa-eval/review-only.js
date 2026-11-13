@@ -3,10 +3,8 @@
  *
  *   node scripts/qa-eval/review-only.js A
  *
- * The AI half of semantic validation is the one layer a provider outage hides:
- * /api/validate still answers 200 with its deterministic findings and marks
- * semantic.llm as failed, which is correct behaviour but leaves the review
- * itself unverified. This replays the stored canonical object through the
+ * A provider outage fails the review: /api/validate?semantic=true answers with an error
+ * and no half-reviewed report. This replays the stored canonical object through the
  * review alone - one provider call, no regeneration - which is exactly the
  * retry path the Results page offers.
  */

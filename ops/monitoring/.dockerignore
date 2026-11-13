@@ -1,0 +1,17 @@
+# Allow-list: only what the monitor needs at run time is sent to the build. Everything else, including any
+# file added later, stays out of the context. (The build context is this folder, not the repository root.)
+*
+!package.json
+!server.js
+!src/
+!public/
+
+# Tests and the build check are not run in the image.
+**/*.test.js
+scripts/
+
+# Never in an image, even if an allowed directory ever contains them.
+**/.env
+**/.env.*
+**/node_modules
+**/.git

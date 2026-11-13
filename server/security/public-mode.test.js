@@ -509,6 +509,8 @@ describe('origin and CORS', () => {
 
 describe('model providers', () => {
   it('lets the owner choose Claude explicitly, and calls the gateway once', async () => {
+    // A review that answers with something unusable is a failure now, so the gateway gives a real one.
+    gateway.generate = (record) => generateReply(record.body.request_id, { issues: [] });
     const app = await makeApp();
     const { result, calls } = await watchingFetch(async () =>
       app.inject({

@@ -12,6 +12,7 @@
 .cloudflared
 .claude
 .vercel
+.qatool-local
 
 # The backend and everything that only it uses
 server
@@ -20,6 +21,7 @@ fixtures
 scripts
 docs
 deploy
+ops
 Dockerfile.backend
 Dockerfile.frontend
 compose.yaml
